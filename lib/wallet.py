@@ -938,7 +938,13 @@ class Abstract_Wallet(PrintError):
     def dust_threshold(self):
         return dust_threshold(self.network)
 
-    def make_unsigned_transaction(self, inputs, outputs, config, fixed_fee=None, change_addr=None):
+    def make_unsigned_transaction(self, inputs, outputs, config, fixed_fee=None, change_addr=None,crowdfunding=False):
+
+
+        print ("TOP OF MAKE UNSIGN TX , crowdfunding is ",crowdfunding)
+
+       
+
         # check outputs
         i_max = None
         for i, o in enumerate(outputs):
@@ -947,21 +953,24 @@ class Abstract_Wallet(PrintError):
                 if i_max is not None:
                     raise BaseException("More than one output set to spend max")
                 i_max = i
-
+        
         # Avoid index-out-of-range with inputs[0] below
-        if not inputs:
+        if not inputs: 
             raise NotEnoughFunds()
 
         if fixed_fee is None and config.fee_per_kb() is None:
             raise BaseException('Dynamic fee estimates not available')
+ 
 
         for item in inputs:
             self.add_input_info(item)
+         
 
         # change address
-        if change_addr:
+        if change_addr: 
             change_addrs = [change_addr]
-        else:
+            print ("change addrs is ",change_addrs)
+        else: 
             addrs = self.get_change_addresses()[-self.gap_limit_for_change:]
             if self.use_change and addrs:
                 # New change addresses are created only after a few
@@ -972,23 +981,25 @@ class Abstract_Wallet(PrintError):
                 if not change_addrs:
                     change_addrs = [random.choice(addrs)]
             else:
-                change_addrs = [inputs[0]['address']]
+                change_addrs = [inputs[0]['address']] 
+ 
 
         assert all(isinstance(addr, Address) for addr in change_addrs)
-
+      
         # Fee estimator
         if fixed_fee is None:
             fee_estimator = config.estimate_fee
         else:
             fee_estimator = lambda size: fixed_fee
+ 
 
-        if i_max is None:
+        if i_max is None: 
             # Let the coin chooser select the coins to spend
             max_change = self.max_change_outputs if self.multiple_change else 1
             coin_chooser = coinchooser.CoinChooserPrivacy()
             tx = coin_chooser.make_tx(inputs, outputs, change_addrs[:max_change],
-                                      fee_estimator, self.dust_threshold())
-        else:
+                                      fee_estimator, self.dust_threshold(),crowdfunding)
+        else: 
             sendable = sum(map(lambda x:x['value'], inputs))
             _type, data, value = outputs[i_max]
             outputs[i_max] = (_type, data, 0)
@@ -996,7 +1007,7 @@ class Abstract_Wallet(PrintError):
             fee = fee_estimator(tx.estimated_size())
             amount = max(0, sendable - tx.output_value() - fee)
             outputs[i_max] = (_type, data, amount)
-            tx = Transaction.from_io(inputs, outputs)
+            tx = Transaction.from_io(inputs, outputs) 
 
         # If user tries to send too big of a fee (more than 50 sat/byte), stop them from shooting themselves in the foot
         tx_in_bytes=tx.estimated_size()
@@ -1006,6 +1017,7 @@ class Abstract_Wallet(PrintError):
             raise ExcessiveFee()
             return
 
+ 
         # Sort the inputs and outputs deterministically
         tx.BIP_LI01_sort()
         # Timelock tx to current height.
@@ -1213,7 +1225,10 @@ class Abstract_Wallet(PrintError):
                 info[addr] = index, sorted_xpubs, self.m if isinstance(self, Multisig_Wallet) else None
         tx.output_info = info
 
-    def sign_transaction(self, tx, password):
+    def sign_transaction(self, tx, password,crowdfunding = False):
+         
+ 
+        print ("WWWWWWWWWWWWWWWWWWnsaction crowdfunding ",crowdfunding)
         if self.is_watching_only():
             return
         # add input values for signing
@@ -1225,7 +1240,8 @@ class Abstract_Wallet(PrintError):
         for k in self.get_keystores():
             try:
                 if k.can_sign(tx):
-                    k.sign_transaction(tx, password)
+                    print ("about to get keystore?")
+                    k.sign_transaction(tx, password,crowdfunding)
             except UserCancelled:
                 continue
 

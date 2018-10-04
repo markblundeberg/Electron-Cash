@@ -609,6 +609,7 @@ class Transaction:
         if ('value' in txin   # Legacy txs
             and not (estimate_size or self.is_txin_complete(txin))):
             s += int_to_hex(txin['value'], 8)
+        #print ("serialized input is ",s)
         return s
 
     def BIP_LI01_sort(self):
@@ -627,7 +628,8 @@ class Transaction:
     @classmethod
     def nHashType(cls):
         '''Hash type in hex.'''
-        return 0x01 | (cls.SIGHASH_FORKID + (cls.FORKID << 8))
+        #return 0x01 | (cls.SIGHASH_FORKID + (cls.FORKID << 8))
+        return 0xc1
 
     def serialize_preimage(self, i):
         nVersion = int_to_hex(self.version, 4)
@@ -636,9 +638,13 @@ class Transaction:
         inputs = self.inputs()
         outputs = self.outputs()
         txin = inputs[i]
+ 
+        zerostring="0000000000000000000000000000000000000000000000000000000000000000"
 
         hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
         hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
+        hashPrevouts = zerostring
+        hashSequence = zerostring
         hashOutputs = bh2u(Hash(bfh(''.join(self.serialize_output(o) for o in outputs))))
         outpoint = self.serialize_outpoint(txin)
         preimage_script = self.get_preimage_script(txin)
@@ -715,7 +721,8 @@ class Transaction:
         s, r = self.signature_count()
         return r == s
 
-    def sign(self, keypairs):
+    def sign(self, keypairs,crowdfunding = False):
+        print ("Transaction.py sign function. crowdfunding is ",crowdfunding)
         for i, txin in enumerate(self.inputs()):
             num = txin['num_sig']
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
@@ -741,7 +748,14 @@ class Transaction:
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
         print_error("is_complete", self.is_complete())
-        self.raw = self.serialize()
+        if crowdfunding:
+            estimate_size=False
+            inputs = self.inputs()
+            outputs = self.outputs()
+            txins = ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size) for txin in inputs)
+            self.raw = txins
+        else:
+            self.raw = self.serialize()
 
     def get_outputs(self):
         """convert pubkeys to addresses"""

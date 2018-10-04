@@ -166,7 +166,7 @@ class CoinChooserBase(PrintError):
         return change, dust
 
     def make_tx(self, coins, outputs, change_addrs, fee_estimator,
-                dust_threshold):
+                dust_threshold,crowdfunding = False):
         '''Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -185,6 +185,9 @@ class CoinChooserBase(PrintError):
         def sufficient_funds(buckets):
             '''Given a list of buckets, return True if it has enough
             value to pay for the transaction'''
+        
+            if crowdfunding:
+                return True
             total_input = sum(bucket.value for bucket in buckets)
             total_size = sum(bucket.size for bucket in buckets) + base_size
             return total_input >= spent_amount + fee_estimator(total_size)

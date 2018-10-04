@@ -66,6 +66,9 @@ from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import show_transaction
 from .fee_slider import FeeSlider
 
+
+from .crowdfunding_dialog import CrowdfundingDialog
+
 from .util import *
 
 class StatusBarButton(QPushButton):
@@ -132,7 +135,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.tx_notify_timer = None
         self.tl_windows = []
         self.tx_external_keypairs = {}
-
+        self.crowdfunding_in_process = False
         Address.show_cashaddr(config.get('show_cashaddr', False))
 
         self.create_status_bar()
@@ -557,6 +560,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)
         tools_menu.addSeparator()
+
+
+        tools_menu.addAction(_("Crowdfunding transactions"), lambda: CrowdfundingDialog(self, None, True, "Crowdfunding Transactions"))
 
         paytomany_menu = tools_menu.addAction(_("&Pay to many"), self.paytomany)
 
@@ -1199,11 +1205,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.preview_button.setToolTip(_('Display the details of your transactions before signing it.'))
         self.send_button = EnterButton(_("Send"), self.do_send)
         self.clear_button = EnterButton(_("Clear"), self.do_clear)
+        #self.show_crowdsale_input_button = EnterButton(_("Crowdsale"),self.do_clear)
+        self.show_crowdsale_input_button = EnterButton(_("Crowdsale"),self.do_preview_crowdfund)
+        self.show_crowdsale_input_button.setVisible(False)
+
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         buttons.addWidget(self.clear_button)
         buttons.addWidget(self.preview_button)
         buttons.addWidget(self.send_button)
+        buttons.addWidget(self.show_crowdsale_input_button)
         grid.addLayout(buttons, 7, 1, 1, 3)
 
         self.amount_e.shortcut.connect(self.spend_max)
@@ -1221,7 +1232,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
         def entry_changed():
             text = ""
-            if self.not_enough_funds:
+            if self.not_enough_funds and self.crowdfunding_in_process !=True:
                 amt_color, fee_color = ColorScheme.RED, ColorScheme.RED
                 text = _( "Not enough funds" )
                 c, u, x = self.wallet.get_frozen_balance()
@@ -1473,10 +1484,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         coins = self.get_coins(isInvoice)
         return outputs, fee, label, coins
 
+    def do_preview_crowdfund(self):
+        self.do_send(preview = True, sign_crowdfund = True)
+
     def do_preview(self):
         self.do_send(preview = True)
 
-    def do_send(self, preview = False):
+    def do_send(self, preview = False, sign_crowdfund = False):
+ 
+        print ("do_send of main window, sign_crowdfund is ",sign_crowdfund)
+        def sign_done2(success):
+            print ("SIGN DONE2 ")
+
         if run_hook('abort_send', self):
             return
         r = self.read_send_tab()
@@ -1484,7 +1503,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             return
         outputs, fee, tx_desc, coins = r
         try:
-            tx = self.wallet.make_unsigned_transaction(coins, outputs, self.config, fee)
+            print ("call into wallet file..... sign crowwfund is ",sign_crowdfund)
+            tx = self.wallet.make_unsigned_transaction(coins, outputs, self.config, fee,None,sign_crowdfund)
         except NotEnoughFunds:
             self.show_message(_("Insufficient funds"))
             return
@@ -1495,15 +1515,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             traceback.print_exc(file=sys.stdout)
             self.show_message(str(e))
             return
+        if sign_crowdfund == True:
+  
+            print ("ABOUT TO SIGN from MainWindow")
+            #sign_done2=False
+            password = None
+            self.sign_tx_with_password(tx, sign_done2, password,sign_crowdfund)     
+            print (" DONE SIGNING in MainWindow .  tx is ",tx)
 
         amount = tx.output_value() if self.is_max else sum(map(lambda x:x[2], outputs))
         fee = tx.get_fee()
-
+ 
         #if fee < self.wallet.relayfee() * tx.estimated_size() / 1000 and tx.requires_fee(self.wallet):
             #self.show_error(_("This transaction requires a higher fee, or it will not be propagated by the network"))
             #return
 
         if preview:
+            print ("gonna do preview. at this point tx is ",tx)
             self.show_transaction(tx, tx_desc)
             return
 
@@ -1553,12 +1581,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
     @protected
     def sign_tx(self, tx, callback, password):
-        self.sign_tx_with_password(tx, callback, password)
+        crowdfunding= True
+        print ("in sign_tx def protected")
+        self.sign_tx_with_password(tx, callback, password,crowdfduning)
 
-    def sign_tx_with_password(self, tx, callback, password):
+    def sign_tx_with_password(self, tx, callback, password,crowdfunding= False):
         '''Sign the transaction in a separate thread.  When done, calls
         the callback with a success code of True or False.
         '''
+         
+        print ("check if crowdfunding in process ", self.crowdfunding_in_process)
+        print ("check crowdfunding parameter ",crowdfunding)
+        print ("main windowy sign tx with password")
         # call hook to see if plugin needs gui interaction
         run_hook('sign_tx', self, tx)
 
@@ -1571,7 +1605,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         if self.tx_external_keypairs:
             task = partial(Transaction.sign, tx, self.tx_external_keypairs)
         else:
-            task = partial(self.wallet.sign_transaction, tx, password)
+            task = partial(self.wallet.sign_transaction, tx, password,crowdfunding)
         WaitingDialog(self, _('Signing transaction...'), task,
                       on_signed, on_failed)
 
@@ -1706,6 +1740,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
 
     def do_clear(self):
+        self.crowdfunding_in_process= False
+        self.show_crowdsale_input_button.setVisible(False)
+      
         self.is_max = False
         self.not_enough_funds = False
         self.op_return_toolong = False
@@ -1834,6 +1871,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.set_pay_from(coins)
         self.show_send_tab()
         self.update_fee()
+
+    def spend_coins2(self, coins):
+        self.set_pay_from(coins)
+        self.show_crowdsale_input_button.setVisible(True)
+        self.show_send_tab() 
+        self.max_button.setVisible(False)
+        self.fee_slider.setVisible(False) 
+        self.fee_e_label.setVisible(False)
+        self.crowdfunding_in_process=True
 
     def paytomany(self):
         self.show_send_tab()
