@@ -617,7 +617,7 @@ class Transaction:
         self._inputs.sort(key = lambda i: (i['prevout_hash'], i['prevout_n']))
         self._outputs.sort(key = lambda o: (o[2], self.pay_script(o[1])))
 
-    def serialize_output(self, output):
+    def serialize_output(self, output): 
         output_type, addr, amount = output
         s = int_to_hex(amount, 8)
         script = self.pay_script(addr)
@@ -662,7 +662,9 @@ class Transaction:
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
+        
         txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size) for txin in inputs)
+
         txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
         return nVersion + txins + txouts + nLocktime
 
@@ -680,7 +682,7 @@ class Transaction:
         self._inputs.extend(inputs)
         self.raw = None
 
-    def add_outputs(self, outputs):
+    def add_outputs(self, outputs): 
         assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
                    for output in outputs)
         self._outputs.extend(outputs)

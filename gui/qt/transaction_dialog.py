@@ -42,17 +42,21 @@ from .util import *
 
 dialogs = []  # Otherwise python randomly garbage collects the dialogs...
 
-def show_transaction(tx, parent, desc=None, prompt_if_unsaved=False):
-    d = TxDialog(tx, parent, desc, prompt_if_unsaved)
+def show_transaction(tx, parent, desc=None, prompt_if_unsaved=False,crowdfunding = False):
+    d = TxDialog(tx, parent, desc, prompt_if_unsaved,crowdfunding)
     dialogs.append(d)
     d.show()
 
 class TxDialog(QDialog, MessageBoxMixin):
 
-    def __init__(self, tx, parent, desc, prompt_if_unsaved):
+    def __init__(self, tx, parent, desc, prompt_if_unsaved,crowdfunding = False):
         '''Transactions in the wallet will show their description.
         Pass desc to give a description for txs not yet in the wallet.
         '''
+
+
+        print ("txdialog, crowdfunding is ",crowdfunding)
+
         # We want to be a top-level window
         QDialog.__init__(self, parent=None)
         # Take a copy; it might get updated in the main window by
@@ -91,7 +95,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.fee_label = QLabel()
         vbox.addWidget(self.fee_label)
 
-        self.add_io(vbox)
+        self.add_io(vbox,crowdfunding)
 
         self.sign_button = b = QPushButton(_("Sign"))
         b.clicked.connect(self.sign)
@@ -238,7 +242,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.size_label.setText(size_str)
         run_hook('transaction_dialog_update', self)
 
-    def add_io(self, vbox):
+    def add_io(self, vbox,crowdfunding=False):
         if self.tx.locktime > 0:
             vbox.addWidget(QLabel("LockTime: %d\n" % self.tx.locktime))
 
@@ -249,11 +253,20 @@ class TxDialog(QDialog, MessageBoxMixin):
         i_text.setReadOnly(True)
 
         vbox.addWidget(i_text)
-        vbox.addWidget(QLabel(_("Outputs") + ' (%d)'%len(self.tx.outputs())))
+        vbox.addWidget(QLabel(_("Outputs") + ' (%d)'%len(self.tx.outputs() ) ))
         o_text = QTextEdit()
         o_text.setFont(QFont(MONOSPACE_FONT))
         o_text.setReadOnly(True)
         vbox.addWidget(o_text)
+
+        if crowdfunding:
+            vbox.addWidget(QLabel(_("Serialized Input")))
+            si_text = QTextEdit()
+            si_text.setFont(QFont(MONOSPACE_FONT))
+            si_text.setText(self.tx.raw)
+            si_text.setReadOnly(True)
+            vbox.addWidget(si_text)
+
         self.main_window.cashaddr_toggled_signal.connect(
             partial(self.update_io, i_text, o_text))
         self.update_io(i_text, o_text)
@@ -296,7 +309,9 @@ class TxDialog(QDialog, MessageBoxMixin):
                 if x.get('value'):
                     cursor.insertText(format_amount(x['value']), ext)
             cursor.insertBlock()
-
+        
+        #si_text.clear()
+        #si_text=self.tx
         o_text.clear()
         cursor = o_text.textCursor()
         for addr, v in self.tx.get_outputs():

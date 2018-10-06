@@ -101,22 +101,17 @@ class Software_KeyStore(KeyStore):
         decrypted = ec.decrypt_message(message)
         return decrypted
 
-    def sign_transaction(self, tx, password,crowdfunding = False):
-        print ("top of keystore sign tx password is ",password)
+    def sign_transaction(self, tx, password,crowdfunding = False): 
         if self.is_watching_only():
-            return
-        print ("top of keystore sign tx222222222222")
+            return 
         # Raise if password is not correct.
         self.check_password(password)
-        # Add private keys
-        print ("top of keystore sign tx33333333333333")
-        keypairs = self.get_tx_derivations(tx)
-        print ("middle of keystore keypairs are ",keypairs)
+        # Add private keys 
+        keypairs = self.get_tx_derivations(tx) 
         for k, v in keypairs.items():
             keypairs[k] = self.get_private_key(v, password)
         # Sign
-        if keypairs:
-            print ("KEYSTORE SIGNING with crowdfunding ",crowdfunding)
+        if keypairs: 
             tx.sign(keypairs,crowdfunding)
 
 

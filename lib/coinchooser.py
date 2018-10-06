@@ -204,8 +204,11 @@ class CoinChooserBase(PrintError):
         # each pay-to-bitcoin-address output serializes as 34 bytes
         fee = lambda count: fee_estimator(tx_size + count * 34)
         change, dust = self.change_outputs(tx, change_addrs, fee, dust_threshold)
-        tx.add_outputs(change)
-        tx.ephemeral['dust_to_fee'] = dust
+
+        # very important to add the change output (unless crowdfunding)
+        if not crowdfunding:
+            tx.add_outputs(change)
+            tx.ephemeral['dust_to_fee'] = dust
 
         self.print_error("using %d inputs" % len(tx.inputs()))
         self.print_error("using buckets:", [bucket.desc for bucket in buckets])

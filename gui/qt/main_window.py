@@ -835,9 +835,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         d = address_dialog.AddressDialog(self, addr)
         d.exec_()
 
-    def show_transaction(self, tx, tx_desc = None):
+    def show_transaction(self, tx, tx_desc = None, crowdfunding = None):
         '''tx_desc is set only for txs created in the Send tab'''
-        show_transaction(tx, self, tx_desc)
+        print ("BBBBBBBBBBBBBBBBBBBB crowdfunding is ",crowdfunding)
+        show_transaction(tx, self, tx_desc, False, crowdfunding)
 
     def create_receive_tab(self):
         # A 4-column grid layout.  All the stretch is in the last column.
@@ -1386,6 +1387,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.pay_from = list(coins)
         self.redraw_from_list()
 
+    def set_pay_from_raw_input(self, raw):
+        self.pay_from_raw = raw
+
     def redraw_from_list(self):
         self.from_list.clear()
         self.from_label.setHidden(len(self.pay_from) == 0)
@@ -1494,7 +1498,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
  
         print ("do_send of main window, sign_crowdfund is ",sign_crowdfund)
         def sign_done2(success):
-            print ("SIGN DONE2 ")
+            crowdfunding=True 
+            self.show_transaction(tx, tx_desc,crowdfunding)
+            print ("SIGN DONE2 tx is ",tx)
 
         if run_hook('abort_send', self):
             return
@@ -1522,7 +1528,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             password = None
             self.sign_tx_with_password(tx, sign_done2, password,sign_crowdfund)     
             print (" DONE SIGNING in MainWindow .  tx is ",tx)
-
+            return
         amount = tx.output_value() if self.is_max else sum(map(lambda x:x[2], outputs))
         fee = tx.get_fee()
  
@@ -1590,9 +1596,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         the callback with a success code of True or False.
         '''
          
-        print ("check if crowdfunding in process ", self.crowdfunding_in_process)
-        print ("check crowdfunding parameter ",crowdfunding)
-        print ("main windowy sign tx with password")
         # call hook to see if plugin needs gui interaction
         run_hook('sign_tx', self, tx)
 
