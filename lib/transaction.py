@@ -487,7 +487,6 @@ class Transaction:
         assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
                    for output in self._outputs)
         self.locktime = d['lockTime']
-        
         self.version = d['version']
         return d
 
@@ -499,7 +498,6 @@ class Transaction:
         self._inputs = inputs
         self._outputs = outputs.copy()
         self.locktime = locktime
-        #self.locktime = 0
         return self
 
     @classmethod
@@ -597,7 +595,7 @@ class Transaction:
 
     @classmethod
     def serialize_outpoint(self, txin):
-        return bh2u(bfh(txin['prevout_hash'])[::-1]) + int_to_hex(txin['prevout_n'], 4) 
+        return bh2u(bfh(txin['prevout_hash'])[::-1]) + int_to_hex(txin['prevout_n'], 4)
 
     @classmethod
     def serialize_input(self, txin, script, estimate_size=False):
@@ -611,7 +609,6 @@ class Transaction:
         if ('value' in txin   # Legacy txs
             and not (estimate_size or self.is_txin_complete(txin))):
             s += int_to_hex(txin['value'], 8)
-        #print ("serialized input is ",s)
         return s
 
     def BIP_LI01_sort(self):
@@ -628,13 +625,13 @@ class Transaction:
         return s
 
     @classmethod
-    def nHashType(cls,crowdfunding= False):
+    def nHashType(cls, crowdfunding=False):
         '''Hash type in hex.'''
         if crowdfunding:
             return 0xc1
         return 0x01 | (cls.SIGHASH_FORKID + (cls.FORKID << 8))
        
-    def serialize_preimage(self, i,crowdfunding = False):
+    def serialize_preimage(self, i, crowdfunding=False):
         nVersion = int_to_hex(self.version, 4)
         nHashType = int_to_hex(self.nHashType(crowdfunding), 4)
         nLocktime = int_to_hex(self.locktime, 4)
@@ -667,9 +664,7 @@ class Transaction:
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
-        
         txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size) for txin in inputs)
-
         txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
         return nVersion + txins + txouts + nLocktime
 
@@ -687,7 +682,7 @@ class Transaction:
         self._inputs.extend(inputs)
         self.raw = None
 
-    def add_outputs(self, outputs): 
+    def add_outputs(self, outputs):
         assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
                    for output in outputs)
         self._outputs.extend(outputs)
@@ -728,7 +723,7 @@ class Transaction:
         s, r = self.signature_count()
         return r == s
 
-    def sign(self, keypairs,crowdfunding = False): 
+    def sign(self, keypairs, crowdfunding=False): 
         for i, txin in enumerate(self.inputs()):
             num = txin['num_sig']
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
@@ -742,7 +737,7 @@ class Transaction:
                     sec, compressed = keypairs.get(x_pubkey)
                     pubkey = public_key_from_private_key(sec, compressed)
                     # add signature
-                    pre_hash = Hash(bfh(self.serialize_preimage(i,crowdfunding)))
+                    pre_hash = Hash(bfh(self.serialize_preimage(i, crowdfunding)))
                     pkey = regenerate_key(sec)
                     secexp = pkey.secret
                     private_key = MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)
@@ -755,7 +750,7 @@ class Transaction:
                     self._inputs[i] = txin
         print_error("is_complete", self.is_complete())
         if crowdfunding:
-            estimate_size=False
+            estimate_size = False
             inputs = self.inputs()
             outputs = self.outputs()
             txins = ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size) for txin in inputs)

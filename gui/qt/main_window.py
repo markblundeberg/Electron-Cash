@@ -64,10 +64,9 @@ from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, BTCkBEdit, BTCSat
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import show_transaction
+from .crowdfunding_dialog import show_crowdfunding_dialog
 from .fee_slider import FeeSlider
 
-
-from .crowdfunding_dialog import CrowdfundingDialog
 
 from .util import *
 
@@ -562,7 +561,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         tools_menu.addSeparator()
 
 
-        tools_menu.addAction(_("Crowdfunding transaction"), lambda: CrowdfundingDialog(self, None, True, "Crowdfunding Transaction"))
+        tools_menu.addAction(_("Crowdfunding transaction"), lambda: show_crowdfunding_dialog(self, _("Crowdfunding Transaction")))
 
         paytomany_menu = tools_menu.addAction(_("&Pay to many"), self.paytomany)
 
@@ -835,7 +834,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         d = address_dialog.AddressDialog(self, addr)
         d.exec_()
 
-    def show_transaction(self, tx, tx_desc = None, crowdfunding = None):
+    def show_transaction(self, tx, tx_desc = None, crowdfunding = False):
         '''tx_desc is set only for txs created in the Send tab''' 
         show_transaction(tx, self, tx_desc, False, crowdfunding)
 
@@ -1231,7 +1230,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
         def entry_changed():
             text = ""
-            if self.not_enough_funds and self.crowdfunding_in_process !=True:
+            if self.not_enough_funds and not self.crowdfunding_in_process:
                 amt_color, fee_color = ColorScheme.RED, ColorScheme.RED
                 text = _( "Not enough funds" )
                 c, u, x = self.wallet.get_frozen_balance()
@@ -1284,7 +1283,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.do_update_fee()
 
     def update_fee(self):
-        if self.crowdfunding_in_process == False:
+        if not self.crowdfunding_in_process:
             self.require_fee_update = True
 
     def get_payto_or_dummy(self):
@@ -1494,13 +1493,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.do_send(preview = True)
 
     def do_send(self, preview = False, crowdfunding = False):
-  
-        def crowdfunding_done_sign(success):
-            crowdfunding=True 
-            self.show_transaction(tx, tx_desc,crowdfunding)
-            self.crowdfunding_in_process=False
-            self.do_clear()
-
         if run_hook('abort_send', self):
             return
         r = self.read_send_tab()
@@ -1520,10 +1512,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show_message(str(e))
             return
 
-        if crowdfunding == True:
+        if crowdfunding:
+            def crowdfunding_done_sign(success):
+                self.show_transaction(tx, tx_desc, True)
+                self.crowdfunding_in_process = False
+                self.do_clear()
             tx.locktime = 0
-            password = None
-            self.sign_tx_with_password(tx, crowdfunding_done_sign, password,crowdfunding) 
+            self.sign_tx_with_password(tx, crowdfunding_done_sign, None, crowdfunding) 
             return
         amount = tx.output_value() if self.is_max else sum(map(lambda x:x[2], outputs))
         fee = tx.get_fee()
@@ -1587,7 +1582,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         print ("in sign_tx def protected")
         self.sign_tx_with_password(tx, callback, password,crowdfunding)
 
-    def sign_tx_with_password(self, tx, callback, password,crowdfunding= False):
+    def sign_tx_with_password(self, tx, callback, password, crowdfunding=False):
         '''Sign the transaction in a separate thread.  When done, calls
         the callback with a success code of True or False.
         '''
@@ -1604,7 +1599,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         if self.tx_external_keypairs:
             task = partial(Transaction.sign, tx, self.tx_external_keypairs)
         else:
-            task = partial(self.wallet.sign_transaction, tx, password,crowdfunding)
+            task = partial(self.wallet.sign_transaction, tx, password, crowdfunding)
         WaitingDialog(self, _('Signing transaction...'), task,
                       on_signed, on_failed)
 

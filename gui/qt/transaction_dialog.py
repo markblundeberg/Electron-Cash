@@ -42,14 +42,14 @@ from .util import *
 
 dialogs = []  # Otherwise python randomly garbage collects the dialogs...
 
-def show_transaction(tx, parent, desc=None, prompt_if_unsaved=False,crowdfunding = False):
-    d = TxDialog(tx, parent, desc, prompt_if_unsaved,crowdfunding)
+def show_transaction(tx, parent, desc=None, prompt_if_unsaved=False, crowdfunding=False):
+    d = TxDialog(tx, parent, desc, prompt_if_unsaved, crowdfunding)
     dialogs.append(d)
     d.show()
 
 class TxDialog(QDialog, MessageBoxMixin):
 
-    def __init__(self, tx, parent, desc, prompt_if_unsaved,crowdfunding = False):
+    def __init__(self, tx, parent, desc, prompt_if_unsaved, crowdfunding=False):
         '''Transactions in the wallet will show their description.
         Pass desc to give a description for txs not yet in the wallet.
         '''
@@ -66,8 +66,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.prompt_if_unsaved = prompt_if_unsaved
         self.saved = False
         self.desc = desc
-       
-        self.crowdfunding=crowdfunding
+        self.crowdfunding = crowdfunding
 
         self.setMinimumWidth(750)
         self.setWindowTitle(_("Transaction"))
@@ -310,9 +309,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 if x.get('value'):
                     cursor.insertText(format_amount(x['value']), ext)
             cursor.insertBlock()
-        
-        #si_text.clear()
-        #si_text=self.tx
+
         o_text.clear()
         cursor = o_text.textCursor()
         for addr, v in self.tx.get_outputs():

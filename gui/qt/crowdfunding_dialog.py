@@ -1,107 +1,90 @@
-import copy
-import datetime
-import time
-from functools import partial
-import json
-import threading
-import sys
-from pathlib import Path
-from os.path import basename, splitext
-
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 
-from electroncash.address import Address, PublicKey, Base58Error
+from electroncash.address import Address
 from electroncash.bitcoin import *
 from electroncash.i18n import _
-from electroncash.plugins import run_hook
 
 from .util import *
 
-from electroncash.util import bfh,   NotEnoughFunds, ExcessiveFee, InvalidPassword
 from electroncash.transaction import Transaction
-
-from .transaction_dialog import show_transaction
 
 dialogs = []  # Otherwise python randomly garbage collects the dialogs...
 
+def show_crowdfunding_dialog(parent, screen_name=_("Upload Token Document")):
+    d = CrowdfundingDialog(parent, screen_name)
+    dialogs.append(d)
+    d.show()
+    return d
 
 class CrowdfundingDialog(QDialog, MessageBoxMixin):
 
-    def __init__(self, parent, file_receiver=None, show_on_create=False, screen_name="Upload Token Document"):
+    def __init__(self, parent, screen_name=_("Upload Token Document")):
         # We want to be a top-level window
-        QDialog.__init__(self, parent)
+        QDialog.__init__(self, None)
 
         # check parent window type
         self.parent = parent
-        from .main_window import ElectrumWindow
 
-        self.setWindowTitle(_(screen_name))
+        self.setWindowTitle(screen_name)
 
-        vbox = QVBoxLayout()
-        self.setLayout(vbox)
+        self.setMinimumSize(612, 290)
 
-        vbox.addWidget(QLabel("Create Crowdfunding Transaction"))
+        layout = QGridLayout(self)
 
-        d = WindowModalDialog(self, _('Crowdfunding Transaction'))
-        d.setMinimumSize(610, 290)
-
-        layout = QGridLayout(d)
-
-        message_e = QTextEdit()
+        self.message_e = QTextEdit()
         layout.addWidget(QLabel(_('Raw Signed Inputs (one per line)')), 1, 0)
-        layout.addWidget(message_e, 1, 1)
+        layout.addWidget(self.message_e, 1, 1)
         layout.setRowStretch(2,3)
 
-        address_e = QLineEdit()
-        #address_e.setText(address.to_ui_string() if address else '')
+        self.address_e = QLineEdit()
 
-        address_e.setText("")
+        self.address_e.setText("")
         layout.addWidget(QLabel(_('Destination Address')), 2, 0)
-        layout.addWidget(address_e, 2, 1)
+        layout.addWidget(self.address_e, 2, 1)
 
-        amount_e = QLineEdit()
+        self.amount_e = QLineEdit()
         layout.addWidget(QLabel(_('Amount in Satoshis')), 3, 0)
-        layout.addWidget(amount_e, 3, 1)
+        layout.addWidget(self.amount_e, 3, 1)
 
-        raw_full_tx_e = QTextEdit()
+        self.raw_full_tx_e = QTextEdit()
         layout.addWidget(QLabel(_('Raw Full Tx')), 4, 0)
-        layout.addWidget(raw_full_tx_e, 4, 1)
+        layout.addWidget(self.raw_full_tx_e, 4, 1)
+        self.raw_full_tx_e.setReadOnly(True)
 
-        hbox = QHBoxLayout()
+        bbox = QDialogButtonBox()
+        but = bbox.addButton(_("Close"), QDialogButtonBox.RejectRole)
+        but.clicked.connect(lambda: self.close())
+        but = bbox.addButton(_("Build Full Tx"), QDialogButtonBox.AcceptRole)
+        but.clicked.connect(lambda: self.do_sign())
+        layout.addWidget(bbox, 5, 1)
 
-        b = QPushButton(_("Build Full Tx"))
-        b.clicked.connect(lambda: self.do_sign(address_e, message_e, amount_e,raw_full_tx_e))
-        hbox.addWidget(b)
-
-
-
-        b = QPushButton(_("Close"))
-        b.clicked.connect(d.accept)
-        hbox.addWidget(b)
-        layout.addLayout(hbox, 5, 1)
-        d.exec_()
-
-
-    def do_sign(self,address_e, message_e, amount_e,raw_full_tx_e):
-
+    def do_sign(self):
+        if Address.is_valid(self.address_e.text()):
+            myaddr = Address.from_string(self.address_e.text())
+        else:
+            # user entered bad address
+            self.show_error(_("Invalid Address"))
+            return
         version = 1
-        locktime=0
-        tx=Transaction("")
-        _type= 0
-        myaddr=Address.from_string(address_e.text())
-        myoutput = (_type, myaddr, int(amount_e.text())) 
-        serialized_output=Transaction.serialize_output(tx, myoutput) 
+        locktime = 0
+        _type = 0
+        try:
+            myoutput = (_type, myaddr, int(self.amount_e.text()))
+        except ValueError:
+            self.show_error(_("Invalid Amount"))
+            return
+        tx = Transaction(None)
+        serialized_output = tx.serialize_output(myoutput) 
         nVersion = int_to_hex(version, 4)
         nLocktime = int_to_hex(locktime, 4)
-        inputs = message_e.toPlainText().splitlines()
+        inputs = self.message_e.toPlainText().splitlines()
         txins = var_int(len(inputs)) + ''.join(inputs)
         txouts = var_int(1) + serialized_output
         raw_tx = nVersion + txins + txouts + nLocktime 
-        raw_full_tx_e.setText(raw_tx)
-
-     
+        self.raw_full_tx_e.setText(raw_tx)
+        self.raw_full_tx_e.repaint() # for some reason widget wouldn't update on macOS without this! Qt bug!
 
     def closeEvent(self, event):
         event.accept()
@@ -111,3 +94,4 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
             dialogs.remove(self)
         except ValueError:
             pass
+

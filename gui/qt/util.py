@@ -574,10 +574,9 @@ class TaskThread(QThread):
     def run(self):
         while True:
             task = self.tasks.get()
-            
             if not task:
                 break
-            try: 
+            try:
                 result = task.task()
                 self.doneSig.emit(result, task.cb_done, task.cb_success)
             except BaseException:
