@@ -1522,16 +1522,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show_message(str(e))
             return
         if sign_crowdfund == True:
-  
+
             print ("ABOUT TO SIGN from MainWindow")
             #sign_done2=False
+            tx.locktime = 0
             password = None
-            self.sign_tx_with_password(tx, sign_done2, password,sign_crowdfund)     
-            print (" DONE SIGNING in MainWindow .  tx is ",tx)
+            self.sign_tx_with_password(tx, sign_done2, password,sign_crowdfund)
+#            print (" DONE SIGNING in MainWindow .  tx is ",tx)
             return
         amount = tx.output_value() if self.is_max else sum(map(lambda x:x[2], outputs))
         fee = tx.get_fee()
- 
+
         #if fee < self.wallet.relayfee() * tx.estimated_size() / 1000 and tx.requires_fee(self.wallet):
             #self.show_error(_("This transaction requires a higher fee, or it will not be propagated by the network"))
             #return

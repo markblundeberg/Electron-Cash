@@ -1330,8 +1330,6 @@ class Network(util.DaemonThread):
     # what the other ElectrumX methods do. This is unexpected.
     def broadcast_transaction(self, transaction, callback=None):
 
-        transaction="010000000131d75dcca007685c5fd7a9b8b0ad090485508bdc5703d7f24c5e0e951487c3c4010000008a47304402206cdb0f32daf896f73f790c16af3b36dbeeeb76cbf142d390ff7ffff2f2b143bd02201655290f206e6a128e989553c9aa5047b3ad63b933dd064dd0676b7c1f158cd6c1410467ef12c39e9685d6da15d35253abb78c67a370db61bbcf0d7503400c223f64ee48d78e226e5e34533a27787b2b228688a55fc6e95b7a568a84f69ee781b98515feffffff01d0070000000000001976a914e3536c842c1990e6122a3f71d03d3f039e12bd4788ace7680800"
-
         print ("about to broadcast.  tx is ",transaction)
         #print ("DONT ACTUALY BROADCAST ...DEV MODE")
         #return False
