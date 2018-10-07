@@ -99,10 +99,9 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
         nVersion = int_to_hex(version, 4)
         nLocktime = int_to_hex(locktime, 4)
 
-        numinputs=1
+        inputs = message_e.toPlainText().splitlines()
 
-
-        txins = var_int(numinputs) + message_e.toPlainText()
+        txins = var_int(len(inputs)) + ''.join(inputs)
 
         txouts = var_int(1) + serialized_output
         raw_tx = nVersion + txins + txouts + nLocktime
