@@ -487,6 +487,7 @@ class Transaction:
         assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
                    for output in self._outputs)
         self.locktime = d['lockTime']
+        
         self.version = d['version']
         return d
 
@@ -498,6 +499,7 @@ class Transaction:
         self._inputs = inputs
         self._outputs = outputs.copy()
         self.locktime = locktime
+        #self.locktime = 0
         return self
 
     @classmethod
@@ -631,20 +633,26 @@ class Transaction:
         #return 0x01 | (cls.SIGHASH_FORKID + (cls.FORKID << 8))
         return 0xc1
 
-    def serialize_preimage(self, i):
+    def serialize_preimage(self, i,crowdfunding = False):
         nVersion = int_to_hex(self.version, 4)
         nHashType = int_to_hex(self.nHashType(), 4)
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
         txin = inputs[i]
- 
-        zerostring="0000000000000000000000000000000000000000000000000000000000000000"
+        print ("CROWFUNDING ",crowdfunding)
 
-        hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
-        hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
-        hashPrevouts = zerostring
-        hashSequence = zerostring
+
+        if crowdfunding:
+            zerostring="0000000000000000000000000000000000000000000000000000000000000000"
+            hashPrevouts = zerostring
+            hashSequence = zerostring
+            nLockTime =int_to_hex(551145,4)
+            #nLockTime=int_to_hex(0,4)
+        else:
+            hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
+            hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
+        
         hashOutputs = bh2u(Hash(bfh(''.join(self.serialize_output(o) for o in outputs))))
         outpoint = self.serialize_outpoint(txin)
         preimage_script = self.get_preimage_script(txin)
@@ -738,7 +746,7 @@ class Transaction:
                     sec, compressed = keypairs.get(x_pubkey)
                     pubkey = public_key_from_private_key(sec, compressed)
                     # add signature
-                    pre_hash = Hash(bfh(self.serialize_preimage(i)))
+                    pre_hash = Hash(bfh(self.serialize_preimage(i,crowdfunding)))
                     pkey = regenerate_key(sec)
                     secexp = pkey.secret
                     private_key = MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)

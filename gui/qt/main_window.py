@@ -1589,7 +1589,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
     def sign_tx(self, tx, callback, password):
         crowdfunding= True
         print ("in sign_tx def protected")
-        self.sign_tx_with_password(tx, callback, password,crowdfduning)
+        self.sign_tx_with_password(tx, callback, password,crowdfunding)
 
     def sign_tx_with_password(self, tx, callback, password,crowdfunding= False):
         '''Sign the transaction in a separate thread.  When done, calls

@@ -87,7 +87,8 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
     def do_sign(self,address_e, message_e, amount_e,raw_full_tx_e):
 
         version = 1
-        locktime=0
+        locktime=551145
+        #locktime=0
         tx=Transaction("123")
         _type= 0
         myaddr=Address.from_string(address_e.text())
