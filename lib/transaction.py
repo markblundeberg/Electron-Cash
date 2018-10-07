@@ -647,12 +647,12 @@ class Transaction:
             zerostring="0000000000000000000000000000000000000000000000000000000000000000"
             hashPrevouts = zerostring
             hashSequence = zerostring
-            nLockTime =int_to_hex(551145,4)
+#            nLockTime =int_to_hex(551145,4)
             #nLockTime=int_to_hex(0,4)
         else:
             hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
             hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
-        
+
         hashOutputs = bh2u(Hash(bfh(''.join(self.serialize_output(o) for o in outputs))))
         outpoint = self.serialize_outpoint(txin)
         preimage_script = self.get_preimage_script(txin)

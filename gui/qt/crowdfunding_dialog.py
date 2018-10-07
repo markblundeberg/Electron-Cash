@@ -21,9 +21,9 @@ from .util import *
 
 from electroncash.util import bfh,   NotEnoughFunds, ExcessiveFee, InvalidPassword
 from electroncash.transaction import Transaction
- 
+
 from .transaction_dialog import show_transaction
-  
+
 dialogs = []  # Otherwise python randomly garbage collects the dialogs...
 
 
@@ -34,9 +34,9 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
         QDialog.__init__(self, parent)
 
         # check parent window type
-        self.parent = parent 
+        self.parent = parent
         from .main_window import ElectrumWindow
-        
+
         self.setWindowTitle(_(screen_name))
 
         vbox = QVBoxLayout()
@@ -56,7 +56,7 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
 
         address_e = QLineEdit()
         #address_e.setText(address.to_ui_string() if address else '')
-        
+
         address_e.setText("test")
         layout.addWidget(QLabel(_('Destination Address')), 2, 0)
         layout.addWidget(address_e, 2, 1)
@@ -64,46 +64,44 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
         amount_e = QLineEdit()
         layout.addWidget(QLabel(_('Sats Amount')), 3, 0)
         layout.addWidget(amount_e, 3, 1)
- 
+
         raw_full_tx_e = QTextEdit()
         layout.addWidget(QLabel(_('Raw Full Tx')), 4, 0)
         layout.addWidget(raw_full_tx_e, 4, 1)
- 
+
         hbox = QHBoxLayout()
 
         b = QPushButton(_("Sign"))
         b.clicked.connect(lambda: self.do_sign(address_e, message_e, amount_e,raw_full_tx_e))
         hbox.addWidget(b)
 
-      
+
 
         b = QPushButton(_("Close"))
         b.clicked.connect(d.accept)
         hbox.addWidget(b)
         layout.addLayout(hbox, 5, 1)
         d.exec_()
-        
+
 
     def do_sign(self,address_e, message_e, amount_e,raw_full_tx_e):
 
         version = 1
-        locktime=551145
-        #locktime=0
+        locktime=0
         tx=Transaction("123")
         _type= 0
         myaddr=Address.from_string(address_e.text())
         myoutput = (_type, myaddr, int(amount_e.text()))
-        print ("myoutput is ",myoutput) 
+        print ("myoutput is ",myoutput)
         serialized_output=Transaction.serialize_output(tx, myoutput)
         print ("serialized output is ",serialized_output)
-       
+
         nVersion = int_to_hex(version, 4)
         nLocktime = int_to_hex(locktime, 4)
-        
-        numinputs=1
- 
-        
-        txins = var_int(numinputs) + message_e.toPlainText()
+
+        inputs = message_e.toPlainText().splitlines()
+
+        txins = var_int(len(inputs)) + ''.join(inputs)
 
         txouts = var_int(1) + serialized_output
         raw_tx = nVersion + txins + txouts + nLocktime
