@@ -597,7 +597,7 @@ class Transaction:
 
     @classmethod
     def serialize_outpoint(self, txin):
-        return bh2u(bfh(txin['prevout_hash'])[::-1]) + int_to_hex(txin['prevout_n'], 4)
+        return bh2u(bfh(txin['prevout_hash'])[::-1]) + int_to_hex(txin['prevout_n'], 4) 
 
     @classmethod
     def serialize_input(self, txin, script, estimate_size=False):
@@ -628,14 +628,15 @@ class Transaction:
         return s
 
     @classmethod
-    def nHashType(cls):
+    def nHashType(cls,crowdfunding= False):
         '''Hash type in hex.'''
-        #return 0x01 | (cls.SIGHASH_FORKID + (cls.FORKID << 8))
-        return 0xc1
-
+        if crowdfunding:
+            return 0xc1
+        return 0x01 | (cls.SIGHASH_FORKID + (cls.FORKID << 8))
+       
     def serialize_preimage(self, i,crowdfunding = False):
         nVersion = int_to_hex(self.version, 4)
-        nHashType = int_to_hex(self.nHashType(), 4)
+        nHashType = int_to_hex(self.nHashType(crowdfunding), 4)
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
@@ -644,7 +645,7 @@ class Transaction:
         if crowdfunding:
             zerostring="0000000000000000000000000000000000000000000000000000000000000000"
             hashPrevouts = zerostring
-            hashSequence = zerostring 
+            hashSequence = zerostring  
         else:
             hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
             hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
@@ -748,7 +749,7 @@ class Transaction:
                     public_key = private_key.get_verifying_key()
                     sig = private_key.sign_digest_deterministic(pre_hash, hashfunc=hashlib.sha256, sigencode = ecdsa.util.sigencode_der)
                     assert public_key.verify_digest(sig, pre_hash, sigdecode = ecdsa.util.sigdecode_der)
-                    txin['signatures'][j] = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
+                    txin['signatures'][j] = bh2u(sig) + int_to_hex(self.nHashType(crowdfunding) & 255, 1)
                     txin['x_pubkeys'][j] = pubkey
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
