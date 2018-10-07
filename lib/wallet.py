@@ -940,11 +940,6 @@ class Abstract_Wallet(PrintError):
 
     def make_unsigned_transaction(self, inputs, outputs, config, fixed_fee=None, change_addr=None,crowdfunding=False):
 
-
-        print ("TOP OF MAKE UNSIGN TX , crowdfunding is ",crowdfunding)
-
-       
-
         # check outputs
         i_max = None
         for i, o in enumerate(outputs):
@@ -968,8 +963,7 @@ class Abstract_Wallet(PrintError):
 
         # change address
         if change_addr: 
-            change_addrs = [change_addr]
-            print ("change addrs is ",change_addrs)
+            change_addrs = [change_addr] 
         else: 
             addrs = self.get_change_addresses()[-self.gap_limit_for_change:]
             if self.use_change and addrs:
@@ -1013,9 +1007,9 @@ class Abstract_Wallet(PrintError):
         tx_in_bytes=tx.estimated_size()
         fee_in_satoshis=tx.get_fee()
         sats_per_byte=fee_in_satoshis/tx_in_bytes
-        #if (sats_per_byte > 50):
-        #    raise ExcessiveFee()
-        #    return
+        if (sats_per_byte > 50):
+            raise ExcessiveFee()
+            return
 
  
         # Sort the inputs and outputs deterministically
@@ -1226,9 +1220,7 @@ class Abstract_Wallet(PrintError):
         tx.output_info = info
 
     def sign_transaction(self, tx, password,crowdfunding = False):
-         
- 
-        print ("WWWWWWWWWWWWWWWWWWnsaction crowdfunding ",crowdfunding)
+          
         if self.is_watching_only():
             return
         # add input values for signing
@@ -1239,8 +1231,7 @@ class Abstract_Wallet(PrintError):
         # sign
         for k in self.get_keystores():
             try:
-                if k.can_sign(tx):
-                    print ("about to get keystore?")
+                if k.can_sign(tx): 
                     k.sign_transaction(tx, password,crowdfunding)
             except UserCancelled:
                 continue

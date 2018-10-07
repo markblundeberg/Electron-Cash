@@ -1330,10 +1330,7 @@ class Network(util.DaemonThread):
     # what the other ElectrumX methods do. This is unexpected.
     def broadcast_transaction(self, transaction, callback=None):
 
-        print ("about to broadcast.  tx is ",transaction)
-        #print ("DONT ACTUALY BROADCAST ...DEV MODE")
-        #return False
-
+     
         command = 'blockchain.transaction.broadcast'
         invocation = lambda c: self.send([(command, [str(transaction)])], c)
 

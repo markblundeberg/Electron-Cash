@@ -640,15 +640,11 @@ class Transaction:
         inputs = self.inputs()
         outputs = self.outputs()
         txin = inputs[i]
-        print ("CROWFUNDING ",crowdfunding)
-
-
+        
         if crowdfunding:
             zerostring="0000000000000000000000000000000000000000000000000000000000000000"
             hashPrevouts = zerostring
-            hashSequence = zerostring
-#            nLockTime =int_to_hex(551145,4)
-            #nLockTime=int_to_hex(0,4)
+            hashSequence = zerostring 
         else:
             hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
             hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
@@ -731,8 +727,7 @@ class Transaction:
         s, r = self.signature_count()
         return r == s
 
-    def sign(self, keypairs,crowdfunding = False):
-        print ("Transaction.py sign function. crowdfunding is ",crowdfunding)
+    def sign(self, keypairs,crowdfunding = False): 
         for i, txin in enumerate(self.inputs()):
             num = txin['num_sig']
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)

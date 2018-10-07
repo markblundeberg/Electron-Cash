@@ -54,9 +54,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         Pass desc to give a description for txs not yet in the wallet.
         '''
 
-
-        print ("txdialog, crowdfunding is ",crowdfunding)
-
         # We want to be a top-level window
         QDialog.__init__(self, parent=None)
         # Take a copy; it might get updated in the main window by
@@ -69,6 +66,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.prompt_if_unsaved = prompt_if_unsaved
         self.saved = False
         self.desc = desc
+       
+        self.crowdfunding=crowdfunding
 
         self.setMinimumWidth(750)
         self.setWindowTitle(_("Transaction"))
@@ -95,14 +94,14 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.fee_label = QLabel()
         vbox.addWidget(self.fee_label)
 
-        self.add_io(vbox,crowdfunding)
+        self.add_io(vbox)
 
         self.sign_button = b = QPushButton(_("Sign"))
         b.clicked.connect(self.sign)
 
         self.broadcast_button = b = QPushButton(_("Broadcast"))
         b.clicked.connect(self.do_broadcast)
-
+        
         self.save_button = b = QPushButton(_("Save"))
         b.clicked.connect(self.save)
 
@@ -197,6 +196,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         format_amount = self.main_window.format_amount
         tx_hash, status, label, can_broadcast, amount, fee, height, conf, timestamp, exp_n = self.wallet.get_tx_info(self.tx)
         size = self.tx.estimated_size()
+        if self.crowdfunding:
+            can_broadcast=False
         self.broadcast_button.setEnabled(can_broadcast)
         can_sign = not self.tx.is_complete() and \
             (self.wallet.can_sign(self.tx) or bool(self.main_window.tx_external_keypairs))
@@ -242,7 +243,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.size_label.setText(size_str)
         run_hook('transaction_dialog_update', self)
 
-    def add_io(self, vbox,crowdfunding=False):
+    def add_io(self, vbox):
         if self.tx.locktime > 0:
             vbox.addWidget(QLabel("LockTime: %d\n" % self.tx.locktime))
 
@@ -259,8 +260,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         o_text.setReadOnly(True)
         vbox.addWidget(o_text)
 
-        if crowdfunding:
-            vbox.addWidget(QLabel(_("Serialized Input")))
+        if self.crowdfunding:
+            vbox.addWidget(QLabel(_("Serialized Input (copy this for crowdfunding)")))
             si_text = QTextEdit()
             si_text.setFont(QFont(MONOSPACE_FONT))
             si_text.setText(self.tx.raw)

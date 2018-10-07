@@ -42,27 +42,27 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
         vbox = QVBoxLayout()
         self.setLayout(vbox)
 
-        vbox.addWidget(QLabel("Manage Crowdfunding Transactions"))
+        vbox.addWidget(QLabel("Create Crowdfunding Transaction"))
 
-        d = WindowModalDialog(self, _('Crowdfunding Transactions'))
+        d = WindowModalDialog(self, _('Crowdfunding Transaction'))
         d.setMinimumSize(610, 290)
 
         layout = QGridLayout(d)
 
         message_e = QTextEdit()
-        layout.addWidget(QLabel(_('Raw Signed Inputs')), 1, 0)
+        layout.addWidget(QLabel(_('Raw Signed Inputs (one per line)')), 1, 0)
         layout.addWidget(message_e, 1, 1)
         layout.setRowStretch(2,3)
 
         address_e = QLineEdit()
         #address_e.setText(address.to_ui_string() if address else '')
 
-        address_e.setText("test")
+        address_e.setText("")
         layout.addWidget(QLabel(_('Destination Address')), 2, 0)
         layout.addWidget(address_e, 2, 1)
 
         amount_e = QLineEdit()
-        layout.addWidget(QLabel(_('Sats Amount')), 3, 0)
+        layout.addWidget(QLabel(_('Amount in Satoshis')), 3, 0)
         layout.addWidget(amount_e, 3, 1)
 
         raw_full_tx_e = QTextEdit()
@@ -71,7 +71,7 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
 
         hbox = QHBoxLayout()
 
-        b = QPushButton(_("Sign"))
+        b = QPushButton(_("Build Full Tx"))
         b.clicked.connect(lambda: self.do_sign(address_e, message_e, amount_e,raw_full_tx_e))
         hbox.addWidget(b)
 
@@ -88,60 +88,20 @@ class CrowdfundingDialog(QDialog, MessageBoxMixin):
 
         version = 1
         locktime=0
-        tx=Transaction("123")
+        tx=Transaction("")
         _type= 0
         myaddr=Address.from_string(address_e.text())
-        myoutput = (_type, myaddr, int(amount_e.text()))
-        print ("myoutput is ",myoutput)
-        serialized_output=Transaction.serialize_output(tx, myoutput)
-        print ("serialized output is ",serialized_output)
-
+        myoutput = (_type, myaddr, int(amount_e.text())) 
+        serialized_output=Transaction.serialize_output(tx, myoutput) 
         nVersion = int_to_hex(version, 4)
         nLocktime = int_to_hex(locktime, 4)
-
         inputs = message_e.toPlainText().splitlines()
-
         txins = var_int(len(inputs)) + ''.join(inputs)
-
         txouts = var_int(1) + serialized_output
-        raw_tx = nVersion + txins + txouts + nLocktime
-        print ("the raw tx is ",raw_tx)
+        raw_tx = nVersion + txins + txouts + nLocktime 
         raw_full_tx_e.setText(raw_tx)
 
-    def upload(self):
-        if not self.is_dirty:
-            self.progress_label.setText("Broadcasting 1 of " + str(len(self.tx_batch)) + " transactions")
-            self.progress.setVisible(True)
-            self.progress.setMinimum(0)
-            self.progress.setMaximum(len(self.tx_batch))
-            broadcast_count = 0
-            # Broadcast all transaction to the nexwork
-            for tx in self.tx_batch:
-                tx_desc = None
-                status, msg = self.network.broadcast(tx)
-                # print(status)
-                # print(msg)
-                if status == False:
-                    self.show_error(msg)
-                    self.show_error("Upload failed. Try again.")
-                    return
-
-                broadcast_count += 1
-                time.sleep(0.1)
-                self.progress_label.setText("Broadcasting " + str(broadcast_count) + " of " + str(len(self.tx_batch)) + " transactions")
-                self.progress.setValue(broadcast_count)
-                QApplication.processEvents()
-
-            self.progress_label.setText("Broadcasting complete.")
-            self.progress.setHidden(True)
-            try:
-                self.parent.token_dochash_e.setText(self.hash.text())
-                self.parent.token_url_e.setText(self.bitcoinfileAddr_label.text())
-            except AttributeError:
-                pass
-
-            self.show_message("File upload complete.")
-            self.close()
+     
 
     def closeEvent(self, event):
         event.accept()

@@ -66,7 +66,7 @@ class UTXOList(MyTreeWidget):
         coins = filter(lambda x: self.get_name(x) in selected, self.utxos)
 
         menu.addAction(_("Spend"), lambda: self.parent.spend_coins(coins))
-        menu.addAction(_("Spend in Crowdfund"), lambda: self.parent.spend_coins2(coins))
+        menu.addAction(_("Spend in Crowdfund"), lambda: self.parent.spend_crowdfunding(coins))
         if len(selected) == 1:
             txid = selected[0].split(':')[0]
             tx = self.wallet.transactions.get(txid)
