@@ -1692,6 +1692,8 @@ class ImportedAddressWallet(ImportedWalletBase):
         txin['signatures'] = [None]
 
 
+  
+ 
 class ImportedPrivkeyWallet(ImportedWalletBase):
     # wallet made of imported private keys
 
@@ -1773,6 +1775,26 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = PublicKey.from_string(pubkey)
         if pubkey in self.keystore.keypairs:
             return pubkey.address
+
+class ImportedP2SHWallet(ImportedAddressWallet):
+    # wallet made of imported P2SH
+
+    wallet_type = 'imported_privkey'
+    redeem_script=''
+
+    def __init__(self, storage):
+        ImportedPrivkeyWallet.__init__(self, storage)
+
+    @classmethod
+    def from_text(cls,storage, redeem_hex, password):
+        print ("YOYOYOYO text is ",redeem_hex)
+        address = bitcoin.hash160_to_p2sh(hash_160(bfh(redeem_hex)))
+        print ("address is ",address)
+        wallet = cls(storage)
+        wallet.import_address(Address.from_string(address))
+        storage.put('redeem_script', redeem_hex) 
+        storage.put('use_encryption', bool(password))
+        return wallet
 
 
 class Deterministic_Wallet(Abstract_Wallet):
@@ -2022,7 +2044,7 @@ class Multisig_Wallet(Deterministic_Wallet):
         txin['num_sig'] = self.m
 
 
-wallet_types = ['standard', 'multisig', 'imported']
+wallet_types = ['standard', 'multisig', 'imported','p2sh']
 
 def register_wallet_type(category):
     wallet_types.append(category)

@@ -728,6 +728,12 @@ def is_private_key_list(text):
     return bool(get_private_keys(text))
 
 
+def is_redeem_script(text):
+    if text=="51":
+        return True
+    else:
+        return False
+
 is_mpk = lambda x: is_old_mpk(x) or is_xpub(x)
 is_private = lambda x: is_seed(x) or is_xprv(x) or is_private_key_list(x)
 is_master_key = lambda x: is_old_mpk(x) or is_xprv(x) or is_xpub(x)

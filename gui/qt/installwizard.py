@@ -13,7 +13,7 @@ from electroncash.util import UserCancelled, InvalidPassword
 from electroncash.base_wizard import BaseWizard
 from electroncash.i18n import _
 
-from .seed_dialog import SeedLayout, KeysLayout
+from .seed_dialog import SeedLayout, KeysLayout, CoinSplittingLayout
 from .network_dialog import NetworkChoiceLayout
 from .util import *
 from .password_dialog import PasswordLayout, PW_NEW
@@ -350,6 +350,26 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
     @wizard_dialog
     def add_xpub_dialog(self, title, message, is_valid, run_next, allow_multi=False):
         return self.text_input(title, message, is_valid, allow_multi)
+
+
+    @wizard_dialog
+    def add_xpub_dialog3(self, title, message, is_valid, run_next, allow_multi=False):
+        return self.text_input(title, message, is_valid, allow_multi)
+
+    @wizard_dialog
+    def add_xpub_dialog2(self, title, message, is_valid, run_next, allow_multi=False):
+        vbox = QVBoxLayout()
+        layout = CoinSplittingLayout(parent=self, title=message, is_valid=is_valid,
+                             allow_multi=allow_multi)
+        layout2 = CoinSplittingLayout(parent=self, title=message, is_valid=is_valid,
+                             allow_multi=allow_multi)
+        vbox.addLayout(layout.layout())
+        vbox.addLayout(layout2.layout())
+        msg='Create P2SH Address Wallet for Coin Splitting. '+'\r\n'+'Enter Any 2 Private Keys.'
+        self.exec_layout(vbox, _(msg))
+        return layout.get_text(), layout2.get_text() 
+
+ 
 
     @wizard_dialog
     def add_cosigner_dialog(self, run_next, index, is_valid):

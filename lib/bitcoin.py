@@ -249,6 +249,7 @@ def i2o_ECPublicKey(pubkey, compressed=False):
 
 ############ functions from pywallet #####################
 def hash_160(public_key):
+    print ("HASH160 regular show")
     try:
         md = hashlib.new('ripemd160')
         md.update(sha256(public_key))
@@ -274,7 +275,7 @@ def b58_address_to_hash160(addr):
 def hash160_to_p2pkh(h160):
     return hash160_to_b58_address(h160, NetworkConstants.ADDRTYPE_P2PKH)
 
-def hash160_to_p2sh(h160):
+def hash160_to_p2sh(h160): 
     return hash160_to_b58_address(h160, NetworkConstants.ADDRTYPE_P2SH)
 
 def public_key_to_p2pkh(public_key):

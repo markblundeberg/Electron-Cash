@@ -304,6 +304,12 @@ class Commands:
         address = bitcoin.hash160_to_p2sh(hash_160(bfh(redeem_script)))
         return {'address':address, 'redeemScript':redeem_script}
 
+    @command('')
+    def createp2sh(self, redeem_script):
+        
+        address = bitcoin.hash160_to_p2sh(hash_160(bfh(redeem_script)))
+        return {'address':address, 'redeemScript':redeem_script}
+
     @command('w')
     def freeze(self, address):
         """Freeze address. Freeze the funds at one of your wallet\'s addresses"""

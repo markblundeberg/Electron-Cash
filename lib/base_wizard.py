@@ -27,7 +27,7 @@ import os
 from . import bitcoin
 from . import keystore
 from .keystore import bip44_derivation, bip44_derivation_145
-from .wallet import (ImportedAddressWallet, ImportedPrivkeyWallet,
+from .wallet import (ImportedAddressWallet, ImportedPrivkeyWallet, ImportedP2SHWallet,
                      Standard_Wallet, Multisig_Wallet, wallet_types)
 from .i18n import _
 
@@ -82,6 +82,7 @@ class BaseWizard(object):
             ('standard',  _("Standard wallet")),
             ('multisig',  _("Multi-signature wallet")),
             ('imported',  _("Import Bitcoin Cash addresses or private keys")),
+            ('p2sh',  _("Coin Splitter")),
         ]
         choices = [pair for pair in wallet_kinds if pair[0] in wallet_types]
         self.choice_dialog(title=title, message=message, choices=choices, run_next=self.on_wallet_type)
@@ -94,6 +95,8 @@ class BaseWizard(object):
             action = 'choose_multisig'
         elif choice == 'imported':
             action = 'import_addresses_or_keys'
+        elif choice == 'p2sh': 
+            action = 'import_coin_splitter_redeem_script' 
         self.run(action)
 
     def choose_multisig(self):
@@ -128,6 +131,16 @@ class BaseWizard(object):
 
         self.choice_dialog(title=title, message=message, choices=choices, run_next=self.run)
 
+
+
+    def import_coin_splitter_redeem_script(self):
+        v =  lambda x: keystore.is_private_key_list(x)
+        title = _("Import Bitcoin Addresses")
+        message = _("Enter Private Key")
+        self.add_xpub_dialog2(title=title, message=message, run_next=self.on_import_p2sh,
+                             is_valid=v, allow_multi=True)
+ 
+
     def import_addresses_or_keys(self):
         v = lambda x: keystore.is_address_list(x) or keystore.is_private_key_list(x)
         title = _("Import Bitcoin Addresses")
@@ -135,11 +148,18 @@ class BaseWizard(object):
         self.add_xpub_dialog(title=title, message=message, run_next=self.on_import,
                              is_valid=v, allow_multi=True)
 
+    def on_import_p2sh(self, text,text2):
+        print ("test is ",text, " text 2 ",text2)
+        self.wallet = ImportedP2SHWallet.from_text(self.storage, text,
+                                                          None)
+        self.keystores = self.wallet.get_keystores()
+        self.request_password(run_next=self.on_password)
+        self.terminate()
+ 
     def on_import(self, text):
         if keystore.is_address_list(text):
             self.wallet = ImportedAddressWallet.from_text(self.storage, text)
         elif keystore.is_private_key_list(text):
-
             self.wallet = ImportedPrivkeyWallet.from_text(self.storage, text,
                                                           None)
             self.keystores = self.wallet.get_keystores()
