@@ -34,6 +34,8 @@ from .address import (PublicKey, Address, Script, ScriptOutput, hash160,
                       UnknownAddress, OpCodes as opcodes)
 import struct
 
+from . import schnorr
+
 #
 # Workalike python implementation of Bitcoin's CDataStream class.
 #
@@ -554,8 +556,8 @@ class Transaction:
         if estimate_size:
             pubkey_size = self.estimate_pubkey_size_for_txin(txin)
             pk_list = ["00" * pubkey_size] * len(txin.get('x_pubkeys', [None]))
-            # we assume that signature will be 0x48 bytes long
-            sig_list = [ "00" * 0x48 ] * num_sig
+            # SCHNORR signature will always be 0x41 bytes long
+            sig_list = [ "00" * 0x41 ] * num_sig
         else:
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             x_signatures = txin['signatures']
@@ -751,12 +753,7 @@ class Transaction:
                     pubkey = public_key_from_private_key(sec, compressed)
                     # add signature
                     pre_hash = Hash(bfh(self.serialize_preimage(i)))
-                    pkey = regenerate_key(sec)
-                    secexp = pkey.secret
-                    private_key = MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)
-                    public_key = private_key.get_verifying_key()
-                    sig = private_key.sign_digest_deterministic(pre_hash, hashfunc=hashlib.sha256, sigencode = ecdsa.util.sigencode_der)
-                    assert public_key.verify_digest(sig, pre_hash, sigdecode = ecdsa.util.sigdecode_der)
+                    sig = schnorr.sign(sec, pre_hash)
                     txin['signatures'][j] = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
