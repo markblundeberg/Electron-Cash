@@ -1344,7 +1344,7 @@ class Abstract_Wallet(PrintError):
             item = received.get(txin['prevout_hash']+':%d'%txin['prevout_n'])
             tx_height, value, is_cb = item
             txin['value'] = value
-            txin['sign_schnorr'] = sign_schnorr
+            txin.set_default('sign_schnorr', sign_schnorr)
             self.add_input_sig_info(txin, address)
 
     def can_sign(self, tx):
