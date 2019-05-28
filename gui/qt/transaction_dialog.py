@@ -33,7 +33,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 
-from electroncash.address import Address, PublicKey
+from electroncash.address import Address
 from electroncash.bitcoin import base_encode
 from electroncash.i18n import _
 from electroncash.plugins import run_hook
@@ -351,9 +351,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 prevout_n = x.get('prevout_n')
                 cursor.insertText(prevout_hash[0:8] + '...', ext)
                 cursor.insertText(prevout_hash[-8:] + ":%-4d " % prevout_n, ext)
-                addr = x['address']
-                if isinstance(addr, PublicKey):
-                    addr = addr.toAddress()
+                addr = x.get('address')
                 if addr is None:
                     addr_text = _('unknown')
                 else:
