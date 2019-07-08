@@ -167,6 +167,22 @@ class SPV(ThreadJob):
         tx = Transaction(raw_tx)
         try:
             tx.deserialize()
+            # Besides deserializing, we perfom additional checks to reduce the
+            # chance that a legitimate merkle node trips us up.
+            # A legitimate txn of 64 bytes can only have 1 input and 1 output.
+            txin, = tx.inputs()
+            txout, = tx.outputs()
+            # Txes can be at most 1 MB and and each output requires >= 9 bytes;
+            # Thus prevout_n must be either
+            #   <= 111111 for a real spend, or
+            #   == 0xffffffff for a coinbase.
+            assert txin['prevout_n'] <= 111111 or txin['prevout_n'] == 0xffffffff
+            # Output amount can't possibly be more than 21 million bitcoin.
+            assert txout['value'] < 21e14
+            # The chance of reaching this point with a random 64-byte node is 3e-18.
+            # This could be reduced further only slightly by:
+            #  - restricting locktime.
+            #  - ensuring scriptSig is nontruncated.
         except:
             pass
         else:
