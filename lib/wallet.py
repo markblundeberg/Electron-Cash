@@ -2395,10 +2395,15 @@ class Abstract_Wallet(PrintError, SPVDelegate):
                 # reset the address list to default too, just in case. New synchronizer will pick up the addresses again.
                 self.receiving_addresses, self.change_addresses = self.receiving_addresses[:self.gap_limit], self.change_addresses[:self.gap_limit_for_change]
                 do_addr_save = True
+            self.change_reserved.clear()
+            self.change_reserved_default.clear()
+            self.change_unreserved.clear()
+            self.change_reserved_tmp.clear()
             self.invalidate_address_set_cache()
         if do_addr_save:
             self.save_addresses()
         self.save_transactions()
+        self.save_change_reservations()
         self.save_verified_tx()  # implicit cashacct.save
         self.storage.write()
         self.start_threads(network)
