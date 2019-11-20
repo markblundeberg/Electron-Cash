@@ -23,7 +23,7 @@ server_list = [  # first one is the default
     ('89.40.7.97', 8787, False),
     ('server2.example.com', 3436, True),
     ]
-NUM_SIMULTANEOUS_AUTO_FUSIONS = 2
+NUM_SIMULTANEOUS_AUTO_FUSIONS = 4
 AUTOFUSE_RECENT_TOR_LIMIT_LOWER = 40  # if more than <N> tor connections have been made recently (see covert.py) then don't start auto-fuses.
 AUTOFUSE_RECENT_TOR_LIMIT_UPPER = 60  # if more than <N> tor connections have been made recently (see covert.py) then shut down auto-fuses that aren't yet started
 
