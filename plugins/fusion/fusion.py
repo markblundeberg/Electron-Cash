@@ -596,7 +596,9 @@ class Fusion(threading.Thread, PrintError):
 
             maxtiers = set(maxtiers)
 
-            display_tiers = []
+            display_best = []
+            display_mid = []
+            display_queued = []
             for t in tiers_sorted:
                 try:
                     ts = tiers_strings[t]
@@ -604,22 +606,29 @@ class Fusion(threading.Thread, PrintError):
                     raise FusionError('server reported status on tier we are not registered for')
                 if t in statuses:
                     if t == besttimetier:
-                        display_tiers.append('**' + ts + '**')
+                        display_best.insert(0, '**' + ts + '**')
                     elif t in maxtiers:
-                        display_tiers.append('[' + ts + ']')
+                        display_best.append('[' + ts + ']')
                     else:
-                        display_tiers.append(ts)
+                        display_mid.append(ts)
                 else:
-                    display_tiers.append('(' + ts + ')')
+                    display_queued.append(ts)
 
-            tiers_string = ', '.join(display_tiers)
+            parts = []
+            if display_best or display_mid:
+                parts.append(_("Tiers:") + ' ' + ', '.join(display_best + display_mid))
+            if display_queued:
+                parts.append(_("Queued:") + ' ' + ', '.join(display_queued))
+            tiers_string = ' '.join(parts)
 
             if besttime is not None:
-                self.status = ('waiting', 'Starting in {}s. Tiers: {}'.format(besttime, tiers_string))
+                self.status = ('waiting', 'Starting in {}s. {}'.format(besttime, tiers_string))
             elif maxfraction >= 1:
-                self.status = ('waiting', 'Starting soon. Tiers: {}'.format(tiers_string))
+                self.status = ('waiting', 'Starting soon. {}'.format(tiers_string))
+            elif display_best or display_mid:
+                self.status = ('waiting', '{:d}% full. {}'.format(round(maxfraction*100), tiers_string))
             else:
-                self.status = ('waiting', '{:d}% full. Tiers: {}'.format(round(maxfraction*100), tiers_string))
+                self.status = ('waiting', tiers_string)
 
         self.tier = msg.tier
         out_amounts = tier_outputs[self.tier]
