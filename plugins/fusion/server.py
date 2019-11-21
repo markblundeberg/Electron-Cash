@@ -26,7 +26,7 @@ class Params:
     component_feerate = 1000 # sats/kB
     min_excess_fee = 60 # sats
     max_excess_fee = 300000 # sats
-    tiers = [round(b*s) for b in [10000] for s in E12]
+    tiers = [round(b*s) for b in [10000, 100000, 1000000] for s in E12]
 
     # How many clients do we want before starting a fusion?
     min_clients = 6
