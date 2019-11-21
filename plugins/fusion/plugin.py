@@ -23,7 +23,6 @@ server_list = [  # first one is the default
     ('89.40.7.97', 8787, False),
     ('server2.example.com', 3436, True),
     ]
-NUM_SIMULTANEOUS_AUTO_FUSIONS = 4
 AUTOFUSE_RECENT_TOR_LIMIT_LOWER = 40  # if more than <N> tor connections have been made recently (see covert.py) then don't start auto-fuses.
 AUTOFUSE_RECENT_TOR_LIMIT_UPPER = 60  # if more than <N> tor connections have been made recently (see covert.py) then shut down auto-fuses that aren't yet started
 
@@ -33,6 +32,8 @@ DEFAULT_SELECTOR = ('fraction', 0.1)
 COIN_FRACTION_FUDGE_FACTOR = 10
 # for semi-linked addresses (that share txids in their history), avoid linking them with this probability:
 KEEP_LINKED_PROBABILITY = 0.1
+
+DEFAULT_QUEUED_AUTOFUSE = 4
 
 pnp = None
 def get_upnp():
@@ -347,7 +348,8 @@ class FusionPlugin(BasePlugin):
                             wallet._fusions_auto.discard(f)
                         else:
                             num_auto += 1
-                    if num_auto < NUM_SIMULTANEOUS_AUTO_FUSIONS:
+                    target_num_auto = wallet.storage.get('cashfusion_queued_autofuse', DEFAULT_QUEUED_AUTOFUSE)
+                    if num_auto < target_num_auto:
                         # we don't have enough auto-fusions running, so start one
                         coins = [c for l in select_random_coins(wallet, 20) for c in l]
                         if not coins:
