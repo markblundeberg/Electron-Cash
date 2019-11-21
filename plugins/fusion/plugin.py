@@ -27,6 +27,13 @@ NUM_SIMULTANEOUS_AUTO_FUSIONS = 4
 AUTOFUSE_RECENT_TOR_LIMIT_LOWER = 40  # if more than <N> tor connections have been made recently (see covert.py) then don't start auto-fuses.
 AUTOFUSE_RECENT_TOR_LIMIT_UPPER = 60  # if more than <N> tor connections have been made recently (see covert.py) then shut down auto-fuses that aren't yet started
 
+# coin selector options
+DEFAULT_SELECTOR = ('fraction', 0.1)
+# heuristic factor: guess that expected number of coins in wallet in equilibrium is = (this number) / fraction
+COIN_FRACTION_FUDGE_FACTOR = 10
+# for semi-linked addresses (that share txids in their history), avoid linking them with this probability:
+KEEP_LINKED_PROBABILITY = 0.1
+
 pnp = None
 def get_upnp():
     """ return an initialized UPnP singleton """
@@ -47,7 +54,12 @@ def get_upnp():
     pnp = u
     return u
 
-def select_random_coins(wallet, fraction, max_coins, keep_linked_probability = 0.1):
+def select_coins(wallet):
+    # TODO: include unconfirmed/unmatured coins here and exclude the entire
+    # bucket if it contains these (better to wait for fusion).
+    return wallet.get_utxos(domain=None, exclude_frozen=True, mature=True, confirmed_only=True, exclude_slp=True)
+
+def select_random_coins(wallet, max_coins):
     """
     Grab wallet coins with a certain probability, while also paying attention
     to obvious linkages and possible linkages.
@@ -56,9 +68,25 @@ def select_random_coins(wallet, fraction, max_coins, keep_linked_probability = 0
 
     # TODO: include unconfirmed/unmatured coins here and exclude the entire
     # bucket if it contains these (better to wait for fusion).
-    coins = wallet.get_utxos(domain=None, exclude_frozen=True, mature=True, confirmed_only=True, exclude_slp=True)
+    coins = select_coins(wallet)
     if not coins:
         return ()
+
+    # Determine the fraction that should be used
+    select_type, select_amount = wallet.storage.get('cashfusion_selector', DEFAULT_SELECTOR)
+    if select_type == 'size':
+        # user wants to get a typical output of this size (in sats)
+        sum_amount = sum(c['value'] for c in coins)  # available balance
+        fraction = COIN_FRACTION_FUDGE_FACTOR * select_amount / sum_amount
+    elif select_type == 'count':
+        # user wants this number of coins
+        fraction = COIN_FRACTION_FUDGE_FACTOR / select_amount
+    elif select_type == 'fraction':
+        # user wants this fraction
+        fraction = select_amount
+    else:
+        fraction = 0.1
+    # note: fraction at this point could be <0 or >1 but doesn't matter.
 
     # First, we want to bucket coins together when they have obvious linkage.
     # Coins that are linked together should be spent together.
@@ -86,23 +114,36 @@ def select_random_coins(wallet, fraction, max_coins, keep_linked_probability = 0
             # TODO: again there is possibility of disruption here. Need to deal
             # with 'dusty' addresses by ignoring / consolidating dusty coins.
             acoins.clear()
+            continue
         if num_coins + len(acoins) > max_coins:
             # we don't keep trying other buckets even though others might put us at max_coins exactly
             break
-        if random.random() > fraction:
+
+        # The first bucket gets included 'for free'. Other buckets have
+        # fractional chance.
+        if result and random.random() > fraction:
             continue
 
-        # Wemi-linkage check:
+        # Semi-linkage check:
         # We consider all txids involving the address, historical and current.
         ctxids = {txid for txid, height in wallet.get_address_history(addr)}
         collisions = ctxids.intersection(result_txids)
         # Note each collision gives a separate chance of discarding this bucket.
-        if random.random() > keep_linked_probability**len(collisions):
+        if random.random() > KEEP_LINKED_PROBABILITY**len(collisions):
             continue
         # OK, no problems: let's include this bucket.
         num_coins += len(acoins)
         result.append(acoins)
         result_txids.update(ctxids)
+
+    if not result:
+        # nothing was selected, just try grabbing first nonempty bucket
+        try:
+            res = next(coins for addr,coins in addr_coins if coins)
+            result = [res]
+        except StopIteration:
+            # all eligible buckets were cleared.
+            pass
 
     return result
 
@@ -309,7 +350,7 @@ class FusionPlugin(BasePlugin):
                             num_auto += 1
                     if num_auto < NUM_SIMULTANEOUS_AUTO_FUSIONS:
                         # we don't have enough auto-fusions running, so start one
-                        coins = [c for l in select_random_coins(wallet, 0.1, 20) for c in l]
+                        coins = [c for l in select_random_coins(wallet, 20) for c in l]
                         if not coins:
                             self.print_error("auto-fusion skipped due to lack of coins")
                             continue

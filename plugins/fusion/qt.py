@@ -16,7 +16,7 @@ from electroncash_gui.qt.main_window import StatusBarButton
 
 from .fusion import Fusion, can_fuse_from, can_fuse_to, is_tor_port
 from .server import FusionServer, Params
-from .plugin import FusionPlugin, TOR_PORTS, server_list, get_upnp
+from .plugin import FusionPlugin, TOR_PORTS, server_list, get_upnp, DEFAULT_SELECTOR, COIN_FRACTION_FUDGE_FACTOR, select_coins
 
 from pathlib import Path
 heredir = Path(__file__).parent
@@ -276,9 +276,12 @@ class FusionButton(StatusBarButton):
         self.action_toggle = QAction(_("Auto-fuse in background"))
         self.action_toggle.setCheckable(True)
         self.action_toggle.triggered.connect(self.toggle_autofuse)
+        action_wsettings = QAction(_("Wallet settings..."), self)
+        action_wsettings.triggered.connect(self.show_wallet_settings)
         action_settings = QAction(_("CashFusion settings..."), self)
         action_settings.triggered.connect(self.plugin.show_settings_dialog)
-        self.addActions([self.action_toggle, action_settings])
+
+        self.addActions([self.action_toggle, action_wsettings, action_settings])
 
         self.setContextMenuPolicy(Qt.ActionsContextMenu)
 
@@ -314,6 +317,10 @@ class FusionButton(StatusBarButton):
                         f.stop('Stop requested by user')
         self.update_state()
 
+    def show_wallet_settings(self):
+        win = WalletSettingsDialog(self, self.plugin, self.wallet)
+        win.show()
+        win.raise_()
 
 class SettingsDialog(QDialog):
     torscanthread = None
@@ -484,6 +491,109 @@ class SettingsDialog(QDialog):
             self.torscanthread_ping.wait(10)
             self.torscanthread_ping.clear()
 
+class WalletSettingsDialog(QDialog):
+    def __init__(self, parent, plugin, wallet):
+        super().__init__(parent=parent)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.plugin = plugin
+        self.wallet = wallet
+
+        self.setWindowTitle(_("CashFusion wallet settings"))
+        main_layout = QVBoxLayout()
+        self.setLayout(main_layout)
+
+        box = QGroupBox(_("Auto-fusion coin selection")) ; main_layout.addWidget(box)
+        slayout = QVBoxLayout() ; box.setLayout(slayout)
+
+        grid = QGridLayout() ; slayout.addLayout(grid)
+
+        self.radio_select_size = QRadioButton(_("Typical amount (sats)"))
+        grid.addWidget(self.radio_select_size, 0, 0)
+        self.radio_select_fraction = QRadioButton(_("Random fraction (0-1)"))
+        grid.addWidget(self.radio_select_fraction, 1, 0)
+        self.radio_select_count = QRadioButton(_("Number of coins"))
+        grid.addWidget(self.radio_select_count, 2, 0)
+
+        self.radio_select_size.clicked.connect(self.edited_size)
+        self.radio_select_fraction.clicked.connect(self.edited_fraction)
+        self.radio_select_count.clicked.connect(self.edited_count)
+
+        self.le_selector_size = QLineEdit()
+        grid.addWidget(self.le_selector_size, 0, 1)
+        self.le_selector_fraction = QLineEdit()
+        grid.addWidget(self.le_selector_fraction, 1, 1)
+        self.le_selector_count = QLineEdit()
+        grid.addWidget(self.le_selector_count, 2, 1)
+
+        self.le_selector_size.editingFinished.connect(self.edited_size)
+        self.le_selector_fraction.editingFinished.connect(self.edited_fraction)
+        self.le_selector_count.editingFinished.connect(self.edited_count)
+
+        self.update()
+
+    def update(self):
+        self.le_selector_size.setEnabled(False)
+        self.le_selector_fraction.setEnabled(False)
+        self.le_selector_count.setEnabled(False)
+        coinsum = sum(c['value'] for c in select_coins(self.wallet))
+        select_type, select_amount = self.wallet.storage.get('cashfusion_selector', DEFAULT_SELECTOR)
+        if select_type == 'size':
+            self.le_selector_size.setEnabled(True)
+            self.radio_select_size.setChecked(True)
+            sel_size = select_amount
+            if coinsum > 0:
+                sel_fraction = min(COIN_FRACTION_FUDGE_FACTOR * select_amount / coinsum, 1)
+            else:
+                sel_fraction = 1
+        elif select_type == 'count':
+            self.le_selector_count.setEnabled(True)
+            self.radio_select_count.setChecked(True)
+            sel_size = max(coinsum / select_amount, 10000)
+            sel_fraction = COIN_FRACTION_FUDGE_FACTOR / select_amount
+        elif select_type == 'fraction':
+            self.le_selector_fraction.setEnabled(True)
+            self.radio_select_fraction.setChecked(True)
+            sel_size = max(coinsum * select_amount / COIN_FRACTION_FUDGE_FACTOR, 10000)
+            sel_fraction = select_amount
+        else:
+            self.wallet.storage.put('cashfusion_selector', None)
+            return self.update()
+        sel_count = COIN_FRACTION_FUDGE_FACTOR / sel_fraction
+        self.le_selector_size.setText(str(round(sel_size)))
+        self.le_selector_fraction.setText('%.03f' % (sel_fraction))
+        self.le_selector_count.setText(str(round(sel_count)))
+
+    def edited_size(self,):
+        try:
+            size = int(self.le_selector_size.text())
+            if size < 10000:
+                size = 10000
+        except Exception as e:
+            pass
+        else:
+            self.wallet.storage.put('cashfusion_selector', ('size', size))
+        self.update()
+
+    def edited_fraction(self,):
+        try:
+            fraction = float(self.le_selector_fraction.text())
+            fraction = max(0., min(fraction, 1.))
+        except Exception as e:
+            pass
+        else:
+            self.wallet.storage.put('cashfusion_selector', ('fraction', fraction))
+        self.update()
+
+    def edited_count(self,):
+        try:
+            count = int(self.le_selector_count.text())
+            if count < COIN_FRACTION_FUDGE_FACTOR:
+                count = COIN_FRACTION_FUDGE_FACTOR
+        except Exception as e:
+            pass
+        else:
+            self.wallet.storage.put('cashfusion_selector', ('count', count))
+        self.update()
 
 class UtilWindow(QDialog):
     def __init__(self, plugin):
