@@ -318,7 +318,9 @@ class FusionButton(StatusBarButton):
         self.update_state()
 
     def show_wallet_settings(self):
-        win = WalletSettingsDialog(self, self.plugin, self.wallet)
+        win = getattr(self.wallet, '_cashfusion_settings_window', None)
+        if not win:
+            win = WalletSettingsDialog(self, self.plugin, self.wallet)
         win.show()
         win.raise_()
 
@@ -498,6 +500,9 @@ class WalletSettingsDialog(QDialog):
         self.plugin = plugin
         self.wallet = wallet
 
+        assert not hasattr(self.wallet, '_cashfusion_settings_window')
+        self.wallet._cashfusion_settings_window = self
+
         self.setWindowTitle(_("CashFusion wallet settings"))
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
@@ -648,6 +653,10 @@ class WalletSettingsDialog(QDialog):
                 # otherwise, the user will end up self fusing way too much.
                 f.stop('User changed self-fuse limit', not_if_running = True)
         self.update()
+
+    def closeEvent(self, event):
+        self.setParent(None)
+        del self.wallet._cashfusion_settings_window
 
 class UtilWindow(QDialog):
     def __init__(self, plugin):
