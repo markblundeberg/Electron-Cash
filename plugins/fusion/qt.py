@@ -16,7 +16,7 @@ from electroncash_gui.qt.main_window import StatusBarButton
 
 from .fusion import can_fuse_from, can_fuse_to, DEFAULT_SELF_FUSE
 from .server import FusionServer, Params
-from .plugin import FusionPlugin, TOR_PORTS, is_tor_port, server_list, get_upnp, DEFAULT_SELECTOR, COIN_FRACTION_FUDGE_FACTOR, select_coins, DEFAULT_QUEUED_AUTOFUSE
+from .plugin import FusionPlugin, TOR_PORTS, is_tor_port, server_list, get_upnp, DEFAULT_SELECTOR, COIN_FRACTION_FUDGE_FACTOR, select_coins, DEFAULT_QUEUED_AUTOFUSE, DEFAULT_AUTOFUSE_CONFIRMED_ONLY
 
 from pathlib import Path
 heredir = Path(__file__).parent
@@ -533,7 +533,7 @@ class WalletSettingsDialog(QDialog):
         self.le_selector_fraction.editingFinished.connect(self.edited_fraction)
         self.le_selector_count.editingFinished.connect(self.edited_count)
 
-        self.l_warn_selection = QLabel(_("Your target number of coins is low. In order to achieve this level, make sure that you have only 1 queued auto-fusion, and have 'self-fusing' set to 'No'."))
+        self.l_warn_selection = QLabel(_("Your target number of coins is low. In order to achieve the best consolidation, make sure that you have only 1 queued auto-fusion, and have 'self-fusing' set to 'No', and enable fusing only when all coins are confirmed."))
         self.l_warn_selection.setWordWrap(True)
         qs = QSizePolicy()
         qs.setRetainSizeWhenHidden(True)
@@ -546,8 +546,11 @@ class WalletSettingsDialog(QDialog):
         grid.addWidget(QLabel(_("Number of queued fusions")), 0, 0)
         self.le_queued_autofuse = QLineEdit()
         grid.addWidget(self.le_queued_autofuse, 0, 1)
+        self.cb_autofuse_only_all_confirmed = QCheckBox(_("Only autofuse when all coins are confirmed"))
+        slayout.addWidget(self.cb_autofuse_only_all_confirmed)
 
         self.le_queued_autofuse.editingFinished.connect(self.edited_queued_autofuse)
+        self.cb_autofuse_only_all_confirmed.clicked.connect(self.clicked_confirmed_only)
 
         box = QGroupBox(_("Self-fusing")) ; main_layout.addWidget(box)
         slayout = QVBoxLayout() ; box.setLayout(slayout)
@@ -563,7 +566,7 @@ class WalletSettingsDialog(QDialog):
         self.update()
 
     def update(self):
-        coinsum = sum(c['value'] for c in select_coins(self.wallet))
+        eligible, ineligible, sum_value, has_unconfirmed = select_coins(self.wallet)
         select_type, select_amount = self.wallet.storage.get('cashfusion_selector', DEFAULT_SELECTOR)
         self.le_selector_size.setEnabled(select_type == 'size')
         self.le_selector_fraction.setEnabled(select_type == 'fraction')
@@ -571,17 +574,17 @@ class WalletSettingsDialog(QDialog):
         if select_type == 'size':
             self.radio_select_size.setChecked(True)
             sel_size = select_amount
-            if coinsum > 0:
-                sel_fraction = min(COIN_FRACTION_FUDGE_FACTOR * select_amount / coinsum, 1)
+            if sum_value > 0:
+                sel_fraction = min(COIN_FRACTION_FUDGE_FACTOR * select_amount / sum_value, 1)
             else:
                 sel_fraction = 1
         elif select_type == 'count':
             self.radio_select_count.setChecked(True)
-            sel_size = max(coinsum / select_amount, 10000)
+            sel_size = max(sum_value / select_amount, 10000)
             sel_fraction = COIN_FRACTION_FUDGE_FACTOR / select_amount
         elif select_type == 'fraction':
             self.radio_select_fraction.setChecked(True)
-            sel_size = max(coinsum * select_amount / COIN_FRACTION_FUDGE_FACTOR, 10000)
+            sel_size = max(sum_value * select_amount / COIN_FRACTION_FUDGE_FACTOR, 10000)
             sel_fraction = select_amount
         else:
             self.wallet.storage.put('cashfusion_selector', None)
@@ -593,6 +596,7 @@ class WalletSettingsDialog(QDialog):
         self.l_warn_selection.setVisible(sel_fraction > 0.2)
 
         self.le_queued_autofuse.setText(str(self.wallet.storage.get('cashfusion_queued_autofuse', DEFAULT_QUEUED_AUTOFUSE)))
+        self.cb_autofuse_only_all_confirmed.setChecked(self.wallet.storage.get('cashfusion_autofuse_only_when_all_confirmed', DEFAULT_AUTOFUSE_CONFIRMED_ONLY))
 
         self.combo_self_fuse.setCurrentIndex(self.wallet.storage.get('cashfusion_self_fuse_players', DEFAULT_SELF_FUSE) - 1)
 
@@ -640,6 +644,10 @@ class WalletSettingsDialog(QDialog):
             if prevval > numfuse:
                 for f in self.wallet._fusions_auto:
                     f.stop('User decreased queued-fuse limit', not_if_running = True)
+        self.update()
+
+    def clicked_confirmed_only(self, checked):
+        self.wallet.storage.put('cashfusion_autofuse_only_when_all_confirmed', checked)
         self.update()
 
     def chose_self_fuse(self,):

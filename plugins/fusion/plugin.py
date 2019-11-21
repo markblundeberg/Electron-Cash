@@ -6,6 +6,7 @@ import threading
 import time
 from collections import defaultdict
 
+from electroncash.bitcoin import COINBASE_MATURITY
 from electroncash.plugins import BasePlugin, hook, daemon_command
 from electroncash.i18n import _, ngettext, pgettext
 from electroncash.util import profiler, PrintError, InvalidPassword
@@ -34,6 +35,7 @@ COIN_FRACTION_FUDGE_FACTOR = 10
 KEEP_LINKED_PROBABILITY = 0.1
 
 DEFAULT_QUEUED_AUTOFUSE = 4
+DEFAULT_AUTOFUSE_CONFIRMED_ONLY = False
 
 pnp = None
 def get_upnp():
@@ -56,29 +58,60 @@ def get_upnp():
     return u
 
 def select_coins(wallet):
-    # TODO: include unconfirmed/unmatured coins here and exclude the entire
-    # bucket if it contains these (better to wait for fusion).
-    return wallet.get_utxos(domain=None, exclude_frozen=True, mature=True, confirmed_only=True, exclude_slp=True)
+    """ Sort the wallet's coins into address buckets, returning two lists:
+    - Eligible addresses and their coins.
+    - Ineligible addresses and their coins.
 
-def select_random_coins(wallet, max_coins):
+    An address is eligible if it satisfies all conditions:
+    - the address is unfrozen
+    - has 1, 2, or 3 utxo
+    - all utxo are confirmed (or matured in case of coinbases)
+    - has no SLP utxo or frozen utxo
+    """
+    # First, select all the coins
+    eligible = []
+    ineligible = []
+    has_unconfirmed = False
+    sum_value = 0
+    mincbheight = wallet.get_local_height() + 1 - COINBASE_MATURITY
+    for addr in wallet.get_addresses():
+        acoins = list(wallet.get_addr_utxo(addr).values())
+        sum_value += sum(c['value'] for c in acoins)
+        good = True
+        if not acoins:
+            continue
+        if len(acoins) > 3:
+            # skip addresses with too many coins, since they take up lots of 'space' for consolidation.
+            # TODO: there is possibility of disruption here, if we get dust spammed. Need to deal
+            # with 'dusty' addresses by ignoring / consolidating dusty coins.
+            good = False
+        if addr in wallet.frozen_addresses:
+            good = False
+        if any(c['slp_token'] or c['is_frozen_coin'] for c in acoins):
+            good = False
+        if any(c['height'] <= 0 or (c['coinbase'] and c['height'] < mincbheight) for c in acoins):
+            good = False
+            has_unconfirmed = True
+        if good:
+            eligible.append((addr,acoins))
+        else:
+            ineligible.append((addr,acoins))
+
+    return eligible, ineligible, sum_value, has_unconfirmed
+
+def select_random_coins(wallet, eligible, balance, max_coins):
     """
     Grab wallet coins with a certain probability, while also paying attention
     to obvious linkages and possible linkages.
     Returns list of list of coins (bucketed by obvious linkage).
     """
 
-    # TODO: include unconfirmed/unmatured coins here and exclude the entire
-    # bucket if it contains these (better to wait for fusion).
-    coins = select_coins(wallet)
-    if not coins:
-        return ()
-
     # Determine the fraction that should be used
     select_type, select_amount = wallet.storage.get('cashfusion_selector', DEFAULT_SELECTOR)
     if select_type == 'size':
         # user wants to get a typical output of this size (in sats)
         sum_amount = sum(c['value'] for c in coins)  # available balance
-        fraction = COIN_FRACTION_FUDGE_FACTOR * select_amount / sum_amount
+        fraction = COIN_FRACTION_FUDGE_FACTOR * select_amount / balance
     elif select_type == 'count':
         # user wants this number of coins
         fraction = COIN_FRACTION_FUDGE_FACTOR / select_amount
@@ -92,10 +125,7 @@ def select_random_coins(wallet, max_coins):
     # First, we want to bucket coins together when they have obvious linkage.
     # Coins that are linked together should be spent together.
     # Currently, just look at address.
-    addr_coins = defaultdict(list)
-    for c in coins:
-        addr_coins[c['address']].append(c)
-    addr_coins = list(addr_coins.items())
+    addr_coins = eligible
     random.shuffle(addr_coins)
 
     # While fusing we want to pay attention to semi-correlations among coins.
@@ -110,12 +140,6 @@ def select_random_coins(wallet, max_coins):
     result = []
     num_coins = 0
     for addr, acoins in addr_coins:
-        if len(acoins) > 3:
-            # skip addresses with too many coins, since they take up lots of 'space' for consolidation.
-            # TODO: again there is possibility of disruption here. Need to deal
-            # with 'dusty' addresses by ignoring / consolidating dusty coins.
-            acoins.clear()
-            continue
         if num_coins + len(acoins) > max_coins:
             # we don't keep trying other buckets even though others might put us at max_coins exactly
             break
@@ -313,9 +337,9 @@ class FusionPlugin(BasePlugin):
     def thread_jobs(self, ):
         return [self]
     def run(self, ):
-        # this gets called roughly every 0.1 s in the Plugins thread; downclock it to 1 s.
+        # this gets called roughly every 0.1 s in the Plugins thread; downclock it to 5 s.
         run_iter = self._run_iter + 1
-        if run_iter < 10:
+        if run_iter < 50:
             self._run_iter = run_iter
             return
         else:
@@ -349,9 +373,15 @@ class FusionPlugin(BasePlugin):
                         else:
                             num_auto += 1
                     target_num_auto = wallet.storage.get('cashfusion_queued_autofuse', DEFAULT_QUEUED_AUTOFUSE)
+                    confirmed_only = wallet.storage.get('cashfusion_autofuse_only_when_all_confirmed', DEFAULT_AUTOFUSE_CONFIRMED_ONLY)
                     if num_auto < target_num_auto:
                         # we don't have enough auto-fusions running, so start one
-                        coins = [c for l in select_random_coins(wallet, 20) for c in l]
+                        eligible, ineligible, sum_value, has_unconfirmed = select_coins(wallet)
+                        if confirmed_only and has_unconfirmed:
+                            for f in wallet._fusions_auto:
+                                f.stop('Wallet has unconfirmed coins... waiting.', not_if_running = True)
+                            continue
+                        coins = [c for l in select_random_coins(wallet, eligible, sum_value, 20) for c in l]
                         if not coins:
                             self.print_error("auto-fusion skipped due to lack of coins")
                             continue
@@ -362,6 +392,11 @@ class FusionPlugin(BasePlugin):
                             self.print_error(f"auto-fusion skipped due to error: {e}")
                             return
                         wallet._fusions_auto.add(f)
+                    elif confirmed_only:
+                        eligible, ineligible, sum_value, has_unconfirmed = select_coins(wallet)
+                        if confirmed_only and has_unconfirmed:
+                            for f in wallet._fusions_auto:
+                                f.stop('Wallet has unconfirmed coins... waiting.', not_if_running = True)
 
     def start_testserver(self, network, bindhost, port, upnp = None):
         if self.testserver:
