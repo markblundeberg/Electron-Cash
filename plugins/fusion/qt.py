@@ -581,7 +581,7 @@ class WalletSettingsDialog(QDialog):
         except Exception as e:
             pass
         else:
-            self.wallet.storage.put('cashfusion_selector', ('fraction', fraction))
+            self.wallet.storage.put('cashfusion_selector', ('fraction', round(fraction, 3)))
         self.update()
 
     def edited_count(self,):
