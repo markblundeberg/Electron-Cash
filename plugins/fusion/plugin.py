@@ -119,9 +119,8 @@ def select_random_coins(wallet, max_coins):
             # we don't keep trying other buckets even though others might put us at max_coins exactly
             break
 
-        # The first bucket gets included 'for free'. Other buckets have
-        # fractional chance.
-        if result and random.random() > fraction:
+        # For each coin in the bucket, we give a separate chance of joining.
+        if random.random() > fraction:
             continue
 
         # Semi-linkage check:
