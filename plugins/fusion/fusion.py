@@ -493,6 +493,12 @@ class Fusion(threading.Thread, PrintError):
         self.min_excess_fee = reply.min_excess_fee
         self.max_excess_fee = reply.max_excess_fee
         self.available_tiers = tuple(reply.tiers)
+        
+        # Enforce some sensible limits, in case server is crazy
+        if (self.component_feerate > 5000):
+            raise FusionError('excessive component feerate from server')
+        if (self.min_excess_fee > 400):
+            raise FusionError('excessive min excess fee from server')
 
     def allocate_outputs(self,):
         num_inputs = len(self.coins)
