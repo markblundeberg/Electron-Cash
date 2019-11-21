@@ -41,6 +41,8 @@ tag_seed = secrets.token_bytes(16)
 # (Not enforced by the protocol)
 MIN_OUTPUT = 10000
 
+# self-fusing control
+DEFAULT_SELF_FUSE = 1
 
 # Timeline for covert submission, measured from when the round start message is received (T=0).
 
@@ -550,7 +552,10 @@ class Fusion(threading.Thread, PrintError):
 
         self.print_error('registering for tiers: {}'.format(', '.join(str(t) for t in tier_outputs)))
 
-        tags = [pb.JoinPools.PoolTag(id = wallet.cashfusion_tag, limit = 2) for wallet in self.source_wallet_info]
+        tags = []
+        for wallet in self.source_wallet_info:
+            selffuse = wallet.storage.get('cashfusion_self_fuse_players', DEFAULT_SELF_FUSE)
+            tags.append(pb.JoinPools.PoolTag(id = wallet.cashfusion_tag, limit = selffuse))
 
         ## Join waiting pools
         self.check_stop(running=False)

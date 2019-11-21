@@ -14,9 +14,9 @@ from electroncash.util import print_error, profiler, PrintError, Weak, format_sa
 from electroncash_gui.qt.util import EnterButton, CancelButton, Buttons, CloseButton, HelpLabel, OkButton, rate_limited, AppModalDialog, WaitingDialog
 from electroncash_gui.qt.main_window import StatusBarButton
 
-from .fusion import Fusion, can_fuse_from, can_fuse_to, is_tor_port
+from .fusion import can_fuse_from, can_fuse_to, DEFAULT_SELF_FUSE
 from .server import FusionServer, Params
-from .plugin import FusionPlugin, TOR_PORTS, server_list, get_upnp, DEFAULT_SELECTOR, COIN_FRACTION_FUDGE_FACTOR, select_coins
+from .plugin import FusionPlugin, TOR_PORTS, is_tor_port, server_list, get_upnp, DEFAULT_SELECTOR, COIN_FRACTION_FUDGE_FACTOR, select_coins
 
 from pathlib import Path
 heredir = Path(__file__).parent
@@ -529,6 +529,17 @@ class WalletSettingsDialog(QDialog):
         self.le_selector_fraction.editingFinished.connect(self.edited_fraction)
         self.le_selector_count.editingFinished.connect(self.edited_count)
 
+        box = QGroupBox(_("Self-fusing")) ; main_layout.addWidget(box)
+        slayout = QVBoxLayout() ; box.setLayout(slayout)
+
+        slayout.addWidget(QLabel(_("Allow this wallet to participate multiply in the same fusion round?")))
+        self.combo_self_fuse = QComboBox()
+        self.combo_self_fuse.addItem(_('No'), 1)
+        self.combo_self_fuse.addItem(_('Yes - as up to two players'), 2)
+        slayout.addWidget(self.combo_self_fuse)
+
+        self.combo_self_fuse.activated.connect(self.chose_self_fuse)
+
         self.update()
 
     def update(self):
@@ -562,6 +573,7 @@ class WalletSettingsDialog(QDialog):
         self.le_selector_size.setText(str(round(sel_size)))
         self.le_selector_fraction.setText('%.03f' % (sel_fraction))
         self.le_selector_count.setText(str(round(sel_count)))
+        self.combo_self_fuse.setCurrentIndex(self.wallet.storage.get('cashfusion_self_fuse_players', DEFAULT_SELF_FUSE) - 1)
 
     def edited_size(self,):
         try:
@@ -593,6 +605,17 @@ class WalletSettingsDialog(QDialog):
             pass
         else:
             self.wallet.storage.put('cashfusion_selector', ('count', count))
+        self.update()
+
+    def chose_self_fuse(self,):
+        sel = self.combo_self_fuse.currentData()
+        oldsel = self.wallet.storage.get('cashfusion_self_fuse_players', DEFAULT_SELF_FUSE)
+        self.wallet.storage.put('cashfusion_self_fuse_players', sel)
+        if oldsel != sel:
+            for f in self.wallet._fusions:
+                # we have to stop waiting fusions since the tags won't overlap.
+                # otherwise, the user will end up self fusing way too much.
+                f.stop('User changed self-fuse limit', not_if_running = True)
         self.update()
 
 class UtilWindow(QDialog):
