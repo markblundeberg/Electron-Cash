@@ -496,7 +496,6 @@ class SettingsDialog(QDialog):
 class WalletSettingsDialog(QDialog):
     def __init__(self, parent, plugin, wallet):
         super().__init__(parent=parent)
-        self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.plugin = plugin
         self.wallet = wallet
 
