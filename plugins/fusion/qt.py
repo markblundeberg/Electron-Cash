@@ -115,8 +115,11 @@ class Plugin(FusionPlugin):
     def on_new_window(self, window):
         # Called on initial plugin load (if enabled) and every new window; only once per window.
         wallet = window.wallet
-        # bit of a dirty hack, to insert our status bar icon (always using index 4, should put us just after the password-changer icon)
-        sb = window.statusBar()
+
+        if not (can_fuse_from(wallet) and can_fuse_to(wallet)):
+            # don't do anything with non-fusable wallets
+            # (if inter-wallet fusing is added, this should change.)
+            return
 
         want_autofuse = wallet.storage.get('cashfusion_autofuse', False)
         self.add_wallet(wallet)
@@ -131,6 +134,8 @@ class Plugin(FusionPlugin):
             d.show()
             self.widgets.add(d)
 
+        # bit of a dirty hack, to insert our status bar icon (always using index 4, should put us just after the password-changer icon)
+        sb = window.statusBar()
         sbbtn = FusionButton(self, wallet)
         sb.insertPermanentWidget(4, sbbtn)
         self.widgets.add(sbbtn)
