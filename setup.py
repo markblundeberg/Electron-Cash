@@ -153,6 +153,7 @@ setup(
         'electroncash_plugins.shuffle',
         'electroncash_plugins.satochip',
         'electroncash_plugins.satochip_2FA',
+        'electroncash_plugins.fusion',
     ],
     package_dir={
         'electroncash': 'lib',
@@ -173,6 +174,9 @@ setup(
         'electroncash_plugins.shuffle' : [
             'servers.json',
             'protobuf/*.proto'
+        ],
+        'electroncash_plugins.fusion' : [
+            '*.svg',
         ],
         # On Linux and Windows this means adding gui/qt/data/*.ttf
         # On Darwin we don't use that font, so we don't add it to save space.
