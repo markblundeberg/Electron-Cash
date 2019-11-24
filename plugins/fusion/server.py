@@ -387,22 +387,20 @@ class FusionController(threading.Thread, PrintError):
             raise FusionError("too few remaining live players")
 
     def run (self, ):
+        self.print_error(f'Starting fusion with {len(self.clients)} players at tier={self.tier}')
+        covert_server = CovertServer(self.bindhost, upnp = self.upnp)
+        covert_server.start()
         try:
             self.sendall(pb.FusionBegin(tier = self.tier))
-            self.print_error(f'Starting fusion with {len(self.clients)} players at tier={self.tier}')
 
             # repeatedly run rounds until successful or exception
             while True:
+                covert_server.reset()
                 # Clean up dead clients
                 self.clients = [c for c in self.clients if not c.dead]
                 self.check_client_count()
-                covert_server = CovertServer(self.bindhost, upnp = self.upnp)
-                covert_server.start()
-                try:
-                    if self.run_round(covert_server):
-                        break
-                finally:
-                    covert_server.stop()
+                if self.run_round(covert_server):
+                    break
 
             self.print_error('Ended successfully!')
         except FusionError as e:
@@ -412,6 +410,8 @@ class FusionController(threading.Thread, PrintError):
             traceback.print_exc(file=sys.stderr)
             for c in self.clients:
                 c.addjob(clientjob_goodbye, 'internal server error', None)
+        finally:
+            covert_server.stop()
         for c in self.clients:
             c.addjob(clientjob_goodbye, None, None)
         self.clients = [] # gc
@@ -641,8 +641,6 @@ class FusionController(threading.Thread, PrintError):
                     return True
 
             self.sendall(pb.FusionResult(ok = False, bad_components = sorted(bad_components)))
-
-        covert_server.stop()
 
         ###
         self.print_error(f"entering blame phase. bad components: {bad_components}")
