@@ -55,7 +55,11 @@ COVERT_TS_EXPECTING_COVERT_COMPONENTS = 25
 COVERT_TS_EXPECTING_COVERT_SIGNATURES = 40
 COVERT_TS_EXPECTING_PROOFS = 45
 COVERT_TS_EXPECTING_BLAMES = 50
-COVERT_CLIENT_TIMEOUT = 40 # how long covert connections are allowed to stay open without activity
+# How long covert connections are allowed to stay open without activity.
+# note this needs to consider the maximum interval between messages:
+# - how long from first connection to last possible Tor component submission?
+# - how long from one round's component submission to the next round's component submission?
+COVERT_CLIENT_TIMEOUT = 40
 
 # used for non-cryptographic purposes
 import random
@@ -795,19 +799,23 @@ class CovertClientThread(ClientHandlerThread):
 class CovertServer(GenericServer):
     """
     Server for covert submissions. How it works:
-    - Before start of covert components phase, call start_components
+    - Launch the server at any time. By default, will bind to an ephemeral port.
+    - Before start of covert components phase, call start_components.
     - To signal the end of covert components phase, owner calls end_components, which returns a dict of {component: contrib}, where contrib is (+- amount - fee).
-    - Before start of covert signatures phase, owner calls start_signatures
-    - To signal the end of covert signatures phase, owner deletes .signatures.
+    - Before start of covert signatures phase, owner calls start_signatures.
+    - To signal the end of covert signatures phase, owner calls end_signatures, which returns a list of signatures (which will have None at positions of missing signatures).
+    - To reset the server for a new round, call .reset(); to kill all connections, call .stop().
     """
-    def __init__(self, bindhost, upnp = None):
-        super().__init__(bindhost, 0, CovertClientThread, upnp = upnp)
+    def __init__(self, bindhost, port=0, upnp = None):
+        super().__init__(bindhost, port, CovertClientThread, upnp = upnp)
         self.round_pubkey = None
 
     def start_components(self, round_pubkey, feerate):
         self.components = dict()
         self.feerate = feerate
         self.round_pubkey = round_pubkey
+        for c in self.spawned_clients:
+            c.got_submit = False
 
     def end_components(self):
         with self.lock:
@@ -821,6 +829,8 @@ class CovertServer(GenericServer):
         self.signatures = [None]*num_inputs
         self.sighashes = sighashes
         self.pubkeys = pubkeys
+        for c in self.spawned_clients:
+            c.got_submit = False
 
     def end_signatures(self):
         with self.lock:
@@ -828,57 +838,82 @@ class CovertServer(GenericServer):
             del self.signatures
         return ret
 
+    def reset(self):
+        try:
+            del self.round_pubkey
+            del self.components
+            del self.feerate
+        except AttributeError:
+            pass
+        try:
+            del self.sighashes
+            del self.pubkeys
+        except AttributeError:
+            pass
+
     def new_client_job(self, client):
-        # Allow the first message to be either component or signature.
-        msg, mtype = client.recv('component', 'signature', timeout = COVERT_CLIENT_TIMEOUT)
-        round_pubkey = self.round_pubkey or client.error('too early')
+        client.got_submit = False
+        while True:
+            msg, mtype = client.recv('component', 'signature', 'ping', timeout = COVERT_CLIENT_TIMEOUT)
+            if mtype == 'ping':
+                continue
 
-        if mtype == 'component':
-            if not hasattr(self, 'components'):
-                client.error('component submitted too late')
-            ctype, contrib = check_covert_component(msg, round_pubkey, self.feerate)
+            if client.got_submit:
+                # We got a second submission before a new phase started. As
+                # an anti-spam measure we only allow one submission per connection
+                # per phase.
+                client.error('multiple submission in same phase')
 
-            with self.lock:
+            if mtype == 'component':
                 try:
-                    self.components[msg.component] = contrib
+                    round_pubkey = self.round_pubkey
+                    feerate = self.feerate
+                    _ = self.components
                 except AttributeError:
-                    client.error('covert component submitted too late')
+                    client.error('component submitted at wrong time')
+                ctype, contrib = check_covert_component(msg, round_pubkey, feerate)
+
+                with self.lock:
+                    try:
+                        self.components[msg.component] = contrib
+                    except AttributeError:
+                        client.error('component submitted at wrong time')
+
+            else:
+                assert mtype == 'signature'
+                try:
+                    sighash = self.sighashes[msg.which_input]
+                    pubkey = self.pubkeys[msg.which_input]
+                    existing_sig = self.signatures[msg.which_input]
+                except AttributeError:
+                    client.error('signature submitted at wrong time')
+                except IndexError:
+                    raise ValidationError('which_input too high')
+
+                sig = msg.txsignature
+                if len(sig) != 64:
+                    raise ValidationError('signature length is wrong')
+
+                # It might be we already have this signature. This is fine
+                # since it might be a resubmission after ack failed delivery,
+                # but we don't allow it to consume our CPU power.
+
+                if sig != existing_sig:
+                    if not schnorr.verify(pubkey, sig, sighash):
+                        raise ValidationError('bad transaction signature')
+                    if existing_sig:
+                        # We received a distinct valid signature. This is not
+                        # allowed and we break the connection as a result.
+                        # Note that we could have aborted earlier but this
+                        # way third parties can't abuse us to find out the
+                        # timing of a given input's signature submission.
+                        raise ValidationError('conflicting valid signature')
+
+                    with self.lock:
+                        try:
+                            self.signatures[msg.which_input] = sig
+                        except AttributeError:
+                            client.error('signature submitted at wrong time')
 
             client.send_ok()
-
-            if ctype != 'input':
-                # for outputs and blanks, we don't expect anything more
-                raise client.Disconnect
-
-            # Now that we've got the input component, wait for signature to come.
-            msg, mtype = client.recv('signature', timeout = COVERT_CLIENT_TIMEOUT)
-
-        # Now we have a signature message.
-        assert mtype == 'signature'
-
-        try:
-            sighash = self.sighashes[msg.which_input]
-            pubkey = self.pubkeys[msg.which_input]
-        except AttributeError:
-            client.error('covert signature submitted too early')
-        except KeyError:
-            raise ValidationError('which_input too high')
-
-        if len(msg.txsignature) != 64:
-            raise ValidationError('signature length is wrong')
-
-        if not hasattr(self, 'signatures'):
-            # quick check before doing a schnorr verification
-            client.error('covert signature submitted too late')
-
-        if not schnorr.verify(pubkey, msg.txsignature, sighash):
-            raise ValidationError('bad transaction signature')
-
-        with self.lock:
-            try:
-                self.signatures[msg.which_input] = msg.txsignature
-            except AttributeError:
-                client.error('covert signature submitted too late')
-
-        client.send_ok()
-        raise client.Disconnect
+            client.got_submit = True

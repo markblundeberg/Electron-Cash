@@ -197,10 +197,13 @@ message Error {
     optional string message = 1;
 }
 
+// Simple ping, as a keepalive.
+message Ping {
+}
+
 // Simple acknowledgement, nothing more to say.
 message OK {
 }
-
 
 // Primary communication channel types
 
@@ -235,6 +238,7 @@ message CovertMessage { // client -> server, covertly
     oneof msg {
         CovertComponent component = 1;
         CovertTransactionSignature signature = 2;
+        Ping ping = 3;
         }
     }
 
