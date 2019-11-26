@@ -23,14 +23,6 @@ class FusionError(Exception):
 def sha256(x):
     return hashlib.sha256(x).digest()
 
-def listhash(iterable):
-    """Hash a list of bytes arguments with well-defined boundaries."""
-    h = hashlib.sha256()
-    for x in iterable:
-        h.update(len(x).to_bytes(4,'big'))
-        h.update(x)
-    return h.digest()
-
 def size_of_input(pubkey):
     # Sizes of inputs after signing:
     #   32+8+1+1+[length of sig]+1+[length of pubkey]
@@ -67,6 +59,24 @@ def gen_keypair():
             b'\x04' + P.x().to_bytes(32,'big') + P.y().to_bytes(32,'big'),
             bytes((2 + (P.y()&1),)) + P.x().to_bytes(32,'big'),
             )
+
+def listhash(iterable):
+    """Hash a list of bytes arguments with well-defined boundaries."""
+    h = hashlib.sha256()
+    for x in iterable:
+        h.update(len(x).to_bytes(4,'big'))
+        h.update(x)
+    return h.digest()
+
+def calc_session_hash(tier, covert_domain_b, covert_port, round_pubkey, all_commitments, all_components):
+    return listhash([b'Cash Fusion Session',
+                     tier.to_bytes(8,'big'),
+                     round_pubkey,
+                     covert_domain_b,
+                     covert_port.to_bytes(4,'big'),
+                     listhash(all_commitments),
+                     listhash(all_components),
+                     ])
 
 
 def tx_from_components(all_components, session_hash):

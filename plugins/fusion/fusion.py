@@ -17,7 +17,7 @@ from .comms import open_connection, send_pb, recv_pb
 from . import fusion_pb2 as pb
 from . import pedersen
 from .covert import CovertSubmitter, is_tor_port
-from .util import FusionError, sha256, listhash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
+from .util import FusionError, sha256, calc_session_hash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
 from .validation import validate_proof_internal, ValidationError, check_input_electrumx
 from . import encrypt
 from .protocol import Protocol
@@ -738,14 +738,7 @@ class Fusion(threading.Thread, PrintError):
             # should have told equally to all the players. If the server tries to
             # sneakily spy on players by saying different things to them, then the
             # users will sign different transactions and the fusion will fail.
-            session_hash = listhash([b'Cash Fusion Session',
-                                     self.tier.to_bytes(8,'big'),
-                                     round_pubkey,
-                                     covert_domain_b,
-                                     covert_port.to_bytes(4,'big'),
-                                     listhash(all_commitments),
-                                     listhash(all_components),
-                                     ])
+            session_hash = calc_session_hash(self.tier, covert_domain_b, covert_port, round_pubkey, all_commitments, all_components)
             if msg.HasField('session_hash') and msg.session_hash != session_hash:
                 raise FusionError('Session hash mismatch (bug!)')
 

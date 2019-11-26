@@ -6,7 +6,7 @@ import socket, threading, time, sys, traceback, secrets
 from collections import defaultdict
 
 from .comms import send_pb, recv_pb, ClientHandlerThread, GenericServer
-from .util import FusionError, sha256, listhash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
+from .util import FusionError, sha256, calc_session_hash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
 from . import fusion_pb2 as pb
 from . import pedersen
 from .validation import check_playercommit, check_covert_component, validate_blame, ValidationError, check_input_electrumx
@@ -561,14 +561,7 @@ class FusionController(threading.Thread, PrintError):
             self.sendall(pb.ShareCovertComponents(components = all_components, skip_signatures = True))
         else:
             self.print_error("starting covert signature acceptance")
-            session_hash = listhash([b'Cash Fusion Session',
-                                     self.tier.to_bytes(8,'big'),
-                                     round_pubkey,
-                                     covert_domain_b,
-                                     covert_port.to_bytes(4,'big'),
-                                     listhash(all_commitments),
-                                     listhash(all_components),
-                                     ])
+            session_hash = calc_session_hash(self.tier, covert_domain_b, covert_port, round_pubkey, all_commitments, all_components)
 
             tx, input_indices = tx_from_components(all_components, session_hash)
 
