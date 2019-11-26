@@ -4,8 +4,9 @@ Some basic validation primitives
 
 from . import fusion_pb2 as pb
 from . import pedersen
-from .util import FusionError, sha256, PedersenFusion, size_of_input, size_of_output, component_fee, dust_limit, pubkeys_from_privkey
+from .util import FusionError, sha256, size_of_input, size_of_output, component_fee, dust_limit, pubkeys_from_privkey
 from . import encrypt
+from .protocol import Protocol
 
 from electroncash.bitcoin import COINBASE_MATURITY
 from electroncash.address import Address
@@ -74,7 +75,7 @@ def check_playercommit(msg, min_excess_fee, max_excess_fee, num_components):
     # Verify pedersen commitment
     try:
         pointsum = pedersen.add_points([m.amount_commitment for m in commit_messages])
-        claimed_commit = PedersenFusion.commit(msg.excess_fee, int.from_bytes(msg.pedersen_total_nonce,'big'))
+        claimed_commit = Protocol.PEDERSEN.commit(msg.excess_fee, int.from_bytes(msg.pedersen_total_nonce,'big'))
     except Exception as e:
         raise ValidationError("pedersen commitment verification error")
     check(pointsum == claimed_commit.P_uncompressed, "pedersen commitment mismatch")
@@ -133,7 +134,7 @@ def validate_proof_internal(proofblob, commitment, all_components, bad_component
     contrib = component_contrib(comp, component_feerate)
 
     P_committed = commitment.amount_commitment
-    claimed_commit = PedersenFusion.commit(contrib, int.from_bytes(msg.pedersen_nonce,'big'))
+    claimed_commit = Protocol.PEDERSEN.commit(contrib, int.from_bytes(msg.pedersen_nonce,'big'))
     check(P_committed == claimed_commit.P_uncompressed, "pedersen commitment mismatch")
 
     if comp.WhichOneof('component') == 'input':

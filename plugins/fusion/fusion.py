@@ -1,5 +1,5 @@
 """
-Main fusion logic. See `class Fusion` for the main exposed API.
+Client-side fusion logic. See `class Fusion` for the main exposed API.
 
 This module has no GUI dependency.
 """
@@ -17,9 +17,10 @@ from .comms import open_connection, send_pb, recv_pb
 from . import fusion_pb2 as pb
 from . import pedersen
 from .covert import CovertSubmitter, is_tor_port
-from .util import PROTOCOL_VERSION, PedersenFusion, FusionError, sha256, listhash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
+from .util import FusionError, sha256, listhash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
 from .validation import validate_proof_internal, ValidationError, check_input_electrumx
 from . import encrypt
+from .protocol import Protocol
 
 from google.protobuf.message import DecodeError
 
@@ -35,47 +36,11 @@ import time
 import hashlib
 import ecdsa
 
+# used for tagging fusions in a way privately derived from wallet name
 tag_seed = secrets.token_bytes(16)
-
-# Don't make fusion outputs smaller than this.
-# (Not enforced by the protocol)
-MIN_OUTPUT = 10000
 
 # self-fusing control
 DEFAULT_SELF_FUSE = 1
-
-# Timeline for covert submission, measured from when the round start message is received (T=0).
-
-# don't let connection attempts take longer than this, since they need to be finished early enough that a spare can be tried.
-COVERT_CONNECT_TIMEOUT = 10.0
-# likewise for submitted data (which is quite small), we don't want it going too late.
-COVERT_SUBMIT_TIMEOUT = 3.0
-# What timespan to make covert submissions over.
-COVERT_SUBMIT_WINDOW = 5.0
-
-# timeframe for making connections
-COVERT_T_FIRST_CONNECT = +0.0
-COVERT_T_LAST_CONNECT = +5.0
-
-# (note -- the server expects to have all commitments received by +3.0 s.)
-# when to start and stop submitting covert components; the BlindSigResponses must have been received by this time.
-COVERT_T_START_COMPS = +15.0
-# COVERT_T_STOP_COMPS = COVERT_T_START_COMPS + COVERT_SUBMIT_WINDOW
-
-# (note -- the server expects to have all components received by +25.0 s.)
-# when to start and stop submitting signatures; the ShareCovertComponents must be received by this time.
-COVERT_T_START_SIGS = +30.0
-# COVERT_T_STOP_SIGS = COVERT_T_START_SIGS + COVERT_SUBMIT_WINDOW
-
-# (note -- the server expects to have all signatures received by +40.0 s.)
-COVERT_T_EXPECTING_CONCLUSION = +50.0
-# (note -- the server expects to have all proofs received by +45.0 s.)
-COVERT_T_EXPECTING_PROOFS = +50.0
-
-# when to close connections that weren't already closed otherwise (for spares, or if error happens after some covert data has been submitted)
-COVERT_T_START_CLOSE = +45.0
-COVERT_T_STOP_CLOSE = +55.0
-
 
 def can_fuse_from(wallet):
     """We can only fuse from wallets that are p2pkh, and where we are able
@@ -215,7 +180,7 @@ def gen_components(num_blanks, inputs, outputs, feerate):
         comp.salt_commitment = sha256(salt)
         compser = comp.SerializeToString()
 
-        pedersencommitment = PedersenFusion.commit(commitamount)
+        pedersencommitment = Protocol.PEDERSEN.commit(commitamount)
         sum_nonce += pedersencommitment.nonce
         sum_amounts += commitamount
 
@@ -485,7 +450,7 @@ class Fusion(threading.Thread, PrintError):
 
     def greet(self,):
         self.print_error('greeting server')
-        self.send(pb.ClientHello(version=PROTOCOL_VERSION))
+        self.send(pb.ClientHello(version=Protocol.VERSION))
         reply = self.recv('serverhello')
         self.num_components = reply.num_components
         self.component_feerate = reply.component_feerate
@@ -523,7 +488,7 @@ class Fusion(threading.Thread, PrintError):
 
         # each P2PKH output will need at least this much allocated to it
         fee_per_output = component_fee(34, self.component_feerate)
-        offset_per_output = MIN_OUTPUT + fee_per_output
+        offset_per_output = Protocol.MIN_OUTPUT + fee_per_output
 
         #
         # TODO Here we can perform fuzzing of the avail_for_outputs amount, keeping in
@@ -651,7 +616,7 @@ class Fusion(threading.Thread, PrintError):
         self.outputs = list(zip(out_amounts, out_addrs))
 
     def run_round(self):
-        msg = self.recv('startround', timeout=15)
+        msg = self.recv('startround')
         # record the time we got this message; it forms the basis time for all
         # covert activities.
         clock = time.monotonic
@@ -676,9 +641,9 @@ class Fusion(threading.Thread, PrintError):
             raise FusionError('badly encoded covert domain')
 
         # launch the covert submitter
-        covert = CovertSubmitter(covert_domain, covert_port, False, self.tor_host, self.tor_port, self.num_components, COVERT_SUBMIT_WINDOW, COVERT_SUBMIT_TIMEOUT)
+        covert = CovertSubmitter(covert_domain, covert_port, False, self.tor_host, self.tor_port, self.num_components, Protocol.COVERT_SUBMIT_WINDOW, Protocol.COVERT_SUBMIT_TIMEOUT)
         try:
-            covert.schedule_connections(covert_T0 + COVERT_T_FIRST_CONNECT, covert_T0 + COVERT_T_LAST_CONNECT, 6, COVERT_CONNECT_TIMEOUT)
+            covert.schedule_connections(covert_T0 + Protocol.T_FIRST_CONNECT, covert_T0 + Protocol.T_LAST_CONNECT, 6, Protocol.COVERT_CONNECT_TIMEOUT)
 
             num_blanks = self.num_components - len(self.inputs) - len(self.outputs)
             (mycommitments, mycomponentslots, mycomponents, myproofs, privkeys), pedersen_amount, pedersen_nonce = gen_components(num_blanks, self.inputs, self.outputs, self.component_feerate)
@@ -698,12 +663,12 @@ class Fusion(threading.Thread, PrintError):
                                       blind_sig_requests = [r.get_request() for r in blindsigrequests],
                                       ))
 
-            msg = self.recv('blindsigresponses', timeout=COVERT_T_START_COMPS)
+            msg = self.recv('blindsigresponses', timeout=Protocol.T_START_COMPS)
             assert len(msg.scalars) == len(blindsigrequests)
             blindsigs = [r.finalize(sbytes, check=True)
                          for r,sbytes in zip(blindsigrequests, msg.scalars)]
 
-            remtime = COVERT_T_START_COMPS - covert_clock()
+            remtime = Protocol.T_START_COMPS - covert_clock()
             if remtime < 0:
                 raise FusionError('Arrived at covert-component phase too slowly.')
             # sleep until the covert component phase really starts, to catch covert connection failures.
@@ -722,18 +687,15 @@ class Fusion(threading.Thread, PrintError):
             # randomly. We don't want to stop them
             # all at once, since if we had already provided our input components
             # then it would be a leak to have them all drop at once.
-            covert.set_stop_time(covert_T0 + COVERT_T_START_CLOSE)
+            covert.set_stop_time(covert_T0 + Protocol.T_START_CLOSE)
 
             # Schedule covert submissions.
             for i, (comp, sig) in enumerate(zip(mycomponents, blindsigs)):
                 msg = pb.CovertComponent(round_pubkey = round_pubkey, signature = sig, component = comp)
-                covert.schedule_submit(mycomponentslots[i], covert_T0 + COVERT_T_START_COMPS,  msg)
-
-            remtime = COVERT_T_START_SIGS - covert_clock()
-            assert remtime > 0, "times misconfigured"
+                covert.schedule_submit(mycomponentslots[i], covert_T0 + Protocol.T_START_COMPS,  msg)
 
             # While submitting, we download the (large) full commitment list.
-            msg = self.recv('allcommitments', timeout=remtime)
+            msg = self.recv('allcommitments', timeout=Protocol.T_START_SIGS)
             all_commitments = tuple(msg.initial_commitments)
 
             # Quick check on the commitment list.
@@ -744,17 +706,28 @@ class Fusion(threading.Thread, PrintError):
             except ValueError:
                 raise FusionError('One or more of my commitments missing.')
 
+            remtime = Protocol.T_START_SIGS - covert_clock()
+            if remtime < 0:
+                raise FusionError('took too long to download commitments list')
+
             # Once all components are received, the server shares them with us:
-            msg = self.recv('sharecovertcomponents', timeout=remtime)
+            msg = self.recv('sharecovertcomponents', timeout=Protocol.T_START_SIGS)
             all_components = tuple(msg.components)
             skip_signatures = bool(msg.skip_signatures)
+
+            # Critical check on server's response timing.
+            if covert_clock() > Protocol.T_START_SIGS:
+                raise FusionError('Shared components message arrived too slowly.')
 
             if covert.failure_exception is not None:
                 e = covert.failure_exception
                 raise FusionError('Covert connections failed: {} {}'.format(type(e).__name__, e)) from e
 
-            if covert_clock() > COVERT_T_START_SIGS:
-                raise FusionError('Shared components message arrived too slowly.')
+            # Find my components
+            try:
+                mycomponent_idxes = [all_components.index(c) for c in mycomponents]
+            except ValueError:
+                raise FusionError('One or more of my components missing.')
 
 
             # TODO: check the components list and see if there are enough inputs/outputs
@@ -775,12 +748,6 @@ class Fusion(threading.Thread, PrintError):
                                      ])
             if msg.HasField('session_hash') and msg.session_hash != session_hash:
                 raise FusionError('Session hash mismatch (bug!)')
-
-            # Find my components
-            try:
-                mycomponent_idxes = [all_components.index(c) for c in mycomponents]
-            except ValueError:
-                raise FusionError('One or more of my components missing.')
 
             ### Start covert signature submissions (or skip)
 
@@ -805,11 +772,13 @@ class Fusion(threading.Thread, PrintError):
 
                     msg = pb.CovertTransactionSignature(txsignature = sig, which_input = i)
 
-                    covert.schedule_submit(mycomponentslots[mycompidx], covert_T0 + COVERT_T_START_SIGS, msg)
+                    covert.schedule_submit(mycomponentslots[mycompidx], covert_T0 + Protocol.T_START_SIGS, msg)
 
-                remtime = COVERT_T_EXPECTING_CONCLUSION - covert_clock()
-                assert remtime > 0, "times misconfigured"
-                msg = self.recv('fusionresult', timeout=remtime)
+                msg = self.recv('fusionresult', timeout=Protocol.T_EXPECTING_CONCLUSION - Protocol.TS_EXPECTING_COVERT_COMPONENTS)
+
+                # Critical check on server's response timing.
+                if covert_clock() > Protocol.T_EXPECTING_CONCLUSION:
+                    raise FusionError('Fusion result message arrived too slowly.')
 
                 if covert.failure_exception is not None:
                     e = covert.failure_exception
@@ -904,11 +873,10 @@ class Fusion(threading.Thread, PrintError):
                                   random_number = random_number,
                                   ))
 
+        self.status = ('running', 'round failed - checking proofs')
+
         self.print_error("receiving proofs")
-        remtime = COVERT_T_EXPECTING_PROOFS - covert_clock()
-        if remtime <= 0:
-            raise FusionError("got to receiving-proofs phase too late")
-        msg = self.recv('theirproofslist', timeout=remtime)
+        msg = self.recv('theirproofslist', timeout = 2 * Protocol.STANDARD_TIMEOUT)
         blames = []
         for i, rp in enumerate(msg.proofs):
             try:
@@ -950,10 +918,12 @@ class Fusion(threading.Thread, PrintError):
                 else:
                     self.print_error("verified an input internally, but was unable to check it against blockchain!")
 
-
         self.print_error("sending blames")
         self.send(pb.Blames(blames = blames))
 
+        # Await the final 'restartround' message. It might take some time
+        # to arrive since other players might be slow, and then the server
+        # itself needs to check blockchain.
+        self.recv(timeout = 2 * (Protocol.STANDARD_TIMEOUT + Protocol.BLAME_VERIFY_TIME))
 
-        self.status = ('running', 'round failed - checking proofs')
-
+        raise RuntimeError('hit an unreachable point in the code!')

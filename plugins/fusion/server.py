@@ -6,10 +6,11 @@ import socket, threading, time, sys, traceback, secrets
 from collections import defaultdict
 
 from .comms import send_pb, recv_pb, ClientHandlerThread, GenericServer
-from .util import PROTOCOL_VERSION, PedersenFusion, FusionError, sha256, listhash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
+from .util import FusionError, sha256, listhash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
 from . import fusion_pb2 as pb
 from . import pedersen
 from .validation import check_playercommit, check_covert_component, validate_blame, ValidationError, check_input_electrumx
+from .protocol import Protocol
 
 from electroncash.util import PrintError, ServerErrorResponse
 import electroncash.schnorr as schnorr
@@ -51,11 +52,6 @@ class Params:
     start_time_min = 120
 
 
-COVERT_TS_EXPECTING_COMMITMENTS = 3
-COVERT_TS_EXPECTING_COVERT_COMPONENTS = 25
-COVERT_TS_EXPECTING_COVERT_SIGNATURES = 40
-COVERT_TS_EXPECTING_PROOFS = 45
-COVERT_TS_EXPECTING_BLAMES = 50
 # How long covert connections are allowed to stay open without activity.
 # note this needs to consider the maximum interval between messages:
 # - how long from first connection to last possible Tor component submission?
@@ -67,9 +63,9 @@ import random
 rng = random.Random()
 rng.seed(secrets.token_bytes(32))
 
-def clientjob_send(client, msg, timeout):
+def clientjob_send(client, msg, timeout = Protocol.STANDARD_TIMEOUT):
     client.send(msg, timeout=timeout)
-def clientjob_goodbye(client, msg, timeout):
+def clientjob_goodbye(client, msg, timeout = Protocol.STANDARD_TIMEOUT):
     # a gentler goodbye than killing
     if msg is not None:
         client.send(msg, timeout=timeout)
@@ -77,15 +73,15 @@ def clientjob_goodbye(client, msg, timeout):
 
 class ClientThread(ClientHandlerThread):
     """Basic thread per connected client."""
-    def recv(self, *expected_msg_names, timeout=None):
+    def recv(self, *expected_msg_names, timeout=Protocol.STANDARD_TIMEOUT):
         submsg, mtype = recv_pb(self.connection, pb.ClientMessage, *expected_msg_names, timeout=timeout)
         return submsg
 
-    def send(self, submsg, timeout=None):
+    def send(self, submsg, timeout=Protocol.STANDARD_TIMEOUT):
         send_pb(self.connection, pb.ServerMessage, submsg, timeout=timeout)
 
     def send_error(self, msg):
-        self.send(pb.Error(message = msg), timeout=5)
+        self.send(pb.Error(message = msg), timeout=Protocol.STANDARD_TIMEOUT)
 
     def error(self, msg):
         self.send_error(msg)
@@ -257,7 +253,7 @@ class FusionServer(GenericServer):
         self.print_error("Client joining")
 
         msg = client.recv('clienthello')
-        if msg.version != PROTOCOL_VERSION:
+        if msg.version != Protocol.VERSION:
             client.error("Mismatched protocol version, please upgrade")
 
         if self.stopping:
@@ -376,7 +372,7 @@ class FusionController(threading.Thread, PrintError):
         self.bindhost = bindhost
         self.upnp = upnp
 
-    def sendall(self, msg, timeout = 10):
+    def sendall(self, msg, timeout = Protocol.STANDARD_TIMEOUT):
         for client in self.clients:
             client.addjob(clientjob_send, msg, timeout)
 
@@ -445,7 +441,7 @@ class FusionController(threading.Thread, PrintError):
                                  blind_nonce_points = [b.get_R() for b in blinds],
                                  covert_domain = covert_domain_b,
                                  covert_port = covert_port))
-            msg = c.recv('playercommit', timeout = 10)
+            msg = c.recv('playercommit')
 
             commit_messages = check_playercommit(msg, Params.min_excess_fee, Params.max_excess_fee, Params.num_components)
 
@@ -471,7 +467,7 @@ class FusionController(threading.Thread, PrintError):
             good_players = set(player_commitments.keys())
             if len(good_players) == len(self.clients):
                 break
-            remtime = covert_T0 + COVERT_TS_EXPECTING_COMMITMENTS - time.monotonic()
+            remtime = covert_T0 + Protocol.TS_EXPECTING_COMMITMENTS - time.monotonic()
             if remtime < 0:
                 self.kick_missing_clients(good_players, 'late commitment')
                 self.sendall(pb.RestartRound(message = 'late commitment'))
@@ -512,17 +508,17 @@ class FusionController(threading.Thread, PrintError):
 
         # complete the signature requests (this is fast) and upload them.
         for c, sig_gen in player_blindsig_gens.items():
-            c.addjob(clientjob_send, pb.BlindSigResponses(scalars = list(sig_gen)), 5)
+            c.addjob(clientjob_send, pb.BlindSigResponses(scalars = list(sig_gen)))
 
         # do some cleanup
         del blindsigners, player_blindsig_gens, player_commitments, player_salthashes, player_excess_fees, hash_owners
 
         # Upload the full commitment list; we're a bit generous with the timeout but that's OK.
         self.sendall(pb.AllCommitments(initial_commitments = all_commitments),
-                     timeout=COVERT_TS_EXPECTING_COVERT_SIGNATURES)
+                     timeout=Protocol.TS_EXPECTING_COVERT_SIGNATURES)
 
         # Sleep until end of covert components phase
-        remtime = covert_T0 + COVERT_TS_EXPECTING_COVERT_COMPONENTS - time.monotonic()
+        remtime = covert_T0 + Protocol.TS_EXPECTING_COVERT_COMPONENTS - time.monotonic()
         if remtime < 0:
             # really shouldn't happen, we had plenty of time
             raise FusionError("way too slow")
@@ -562,8 +558,7 @@ class FusionController(threading.Thread, PrintError):
         ###
         if skip_signatures:
             self.print_error("skipping covert signature acceptance")
-            self.sendall(pb.ShareCovertComponents(components = all_components, skip_signatures = True),
-                         timeout=COVERT_TS_EXPECTING_COVERT_SIGNATURES)
+            self.sendall(pb.ShareCovertComponents(components = all_components, skip_signatures = True))
         else:
             self.print_error("starting covert signature acceptance")
             session_hash = listhash([b'Cash Fusion Session',
@@ -583,11 +578,10 @@ class FusionController(threading.Thread, PrintError):
 
             covert_server.start_signatures(sighashes,pubkeys)
 
-            self.sendall(pb.ShareCovertComponents(components = all_components, session_hash = session_hash),
-                         timeout=COVERT_TS_EXPECTING_COVERT_SIGNATURES)
+            self.sendall(pb.ShareCovertComponents(components = all_components, session_hash = session_hash))
 
             # Sleep until end of covert signatures phase
-            remtime = covert_T0 + COVERT_TS_EXPECTING_COVERT_SIGNATURES - time.monotonic()
+            remtime = covert_T0 + Protocol.TS_EXPECTING_COVERT_SIGNATURES - time.monotonic()
             if remtime < 0:
                 # really shouldn't happen, we had plenty of time
                 raise FusionError("way too slow")
@@ -653,6 +647,7 @@ class FusionController(threading.Thread, PrintError):
             # Sanity check for testing -- the proof sharing thing doesn't even make sense with one player.
             for c in self.clients:
                 c.kill('blame yourself!')
+                return
 
         # scan the commitment list and note where each client's commitments ended up
         client_commit_indexes = [[None]*Params.num_components for _ in self.clients]
@@ -688,12 +683,13 @@ class FusionController(threading.Thread, PrintError):
         for client in self.clients:
             client.addjob(client_get_proofs)
 
+        deadline = time.monotonic() + Protocol.STANDARD_TIMEOUT
         # Wait for players to respond with proofs.
         while True:
             good_players = set(players_proven)
             if len(good_players) == len(self.clients):
                 break
-            remtime = covert_T0 + COVERT_TS_EXPECTING_PROOFS - time.monotonic()
+            remtime = deadline - time.monotonic()
             if remtime < 0:
                 self.kick_missing_clients(good_players, 'late proof')
                 self.sendall(pb.RestartRound(message = 'late proof'))
@@ -707,15 +703,15 @@ class FusionController(threading.Thread, PrintError):
             msg = pb.TheirProofsList(proofs = [
                                 dict(encrypted_proof=x, src_commitment_idx=y, dst_key_idx=z)
                                 for x,y,z in proofs])
-            client.addjob(clientjob_send, msg, 5)
+            client.addjob(clientjob_send, msg)
 
-        t_relayed_proofs = time.monotonic()
+        checktime = Protocol.STANDARD_TIMEOUT + Protocol.BLAME_VERIFY_TIME
 
         bad_client_idxes = dict()
         clients_got_blame = set()
         def client_get_blames(client):
             myindex = self.clients.index(client)
-            msg = client.recv('blames', timeout = 10)  # 10s to give them time to check blockchain
+            msg = client.recv('blames', timeout = checktime)
             for blame in msg.blames:
                 try:
                     encproof, src_commitment_idx, dest_key_idx = proofs_to_relay[myindex][blame.which_proof]
@@ -758,12 +754,13 @@ class FusionController(threading.Thread, PrintError):
         for client in self.clients:
             client.addjob(client_get_blames)
 
+        deadline = time.monotonic() + checktime
         # Wait for players to respond with proofs.
         while True:
             good_players = set(clients_got_blame)
             if len(good_players) == len(self.clients):
                 break
-            remtime = covert_T0 + COVERT_TS_EXPECTING_BLAMES - time.monotonic()
+            remtime = deadline - time.monotonic()
             if remtime < 0:
                 self.kick_missing_clients(good_players, 'late blame')
                 self.sendall(pb.RestartRound(message = 'late blame'))
@@ -774,6 +771,8 @@ class FusionController(threading.Thread, PrintError):
         for i, reason in bad_client_idxes.items():
             self.clients[i].kill("you were blamed for the failure: "+reason)
         self.print_error(f"{len(bad_client_idxes)} players blamed")
+
+        self.sendall(pb.RestartRound(message = 'round finished'))
 
 
 class CovertClientThread(ClientHandlerThread):
