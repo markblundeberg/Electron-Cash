@@ -239,12 +239,12 @@ class GenericServer(threading.Thread, PrintError):
                     if self.stopping:
                         sock.close()
                         break
+                    self.print_error(f'new client: {sock.getpeername()[0]}')
                     connection = Connection(sock, self.client_default_timeout)
                     client = self.clientclass(connection)
                     self.spawned_clients.add(client)
                     client.addjob(self.new_client_job)
                     client.start()
-                    self.print_error(f'new client: {sock.getpeername()[0]}')
         except:
             self.print_error('failed with exception')
             traceback.print_exc(file=sys.stderr)
