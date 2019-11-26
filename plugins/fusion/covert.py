@@ -273,6 +273,29 @@ class CovertSubmitter(PrintError):
         if covconn is not None:
             covconn.wakeup.set()
 
+    def schedule_submissions(self, tstart, slot_messages, ping_Nones = True, ping_spares = True):
+        """ Schedule submissions on all slots. For connections without a message,
+        optionally send them a ping."""
+        slot_messages = tuple(slot_messages)
+        assert len(slot_messages) == len(self.slots)
+        # we don't take a lock; because of this we step carefully by
+        # first touching spares, then slots.
+        if ping_spares:
+            for c in tuple(self.spare_connections): # copy in case of mutation mid-iteration
+                c.t_ping = tstart
+                c.wakeup.set()
+        for slot, submsg in zip(self.slots, slot_messages):
+            covconn = slot.covconn
+            if submsg is None:
+                if not ping_Nones:
+                    continue
+                covconn.t_ping = tstart
+            else:
+                slot.submsg = submsg
+                slot.done = False
+                slot.t_submit = tstart
+            covconn.wakeup.set()
+
     def run_connection(self, covconn, conn_time, rand_delay, connect_timeout):
         # Main loop for connection thread
 

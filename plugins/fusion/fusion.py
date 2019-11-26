@@ -690,9 +690,11 @@ class Fusion(threading.Thread, PrintError):
             covert.set_stop_time(covert_T0 + Protocol.T_START_CLOSE)
 
             # Schedule covert submissions.
+            messages = [None] * len(mycomponents)
             for i, (comp, sig) in enumerate(zip(mycomponents, blindsigs)):
-                msg = pb.CovertComponent(round_pubkey = round_pubkey, signature = sig, component = comp)
-                covert.schedule_submit(mycomponentslots[i], covert_T0 + Protocol.T_START_COMPS,  msg)
+                messages[mycomponentslots[i]] = pb.CovertComponent(round_pubkey = round_pubkey, signature = sig, component = comp)
+            assert all(messages)
+            covert.schedule_submissions(covert_T0 + Protocol.T_START_COMPS, messages, ping_spares = True)
 
             # While submitting, we download the (large) full commitment list.
             msg = self.recv('allcommitments', timeout=Protocol.T_START_SIGS)
@@ -752,6 +754,7 @@ class Fusion(threading.Thread, PrintError):
                 tx, input_indices = tx_from_components(all_components, session_hash)
 
                 # iterate over my inputs and sign them
+                messages = [None] * len(mycomponents)
                 for i, (cidx, inp) in enumerate(zip(input_indices, tx.inputs())):
                     try:
                         mycompidx = mycomponent_idxes.index(cidx)
@@ -761,10 +764,10 @@ class Fusion(threading.Thread, PrintError):
                     sighash = sha256(sha256(bytes.fromhex(tx.serialize_preimage(i, 0x41, use_cache = True))))
                     sig = schnorr.sign(sec, sighash)
 
-                    msg = pb.CovertTransactionSignature(txsignature = sig, which_input = i)
+                    messages[mycomponentslots[mycompidx]] = pb.CovertTransactionSignature(txsignature = sig, which_input = i)
+                covert.schedule_submissions(covert_T0 + Protocol.T_START_SIGS, messages, ping_Nones = True, ping_spares = True)
 
-                    covert.schedule_submit(mycomponentslots[mycompidx], covert_T0 + Protocol.T_START_SIGS, msg)
-
+                # wait for result
                 msg = self.recv('fusionresult', timeout=Protocol.T_EXPECTING_CONCLUSION - Protocol.TS_EXPECTING_COVERT_COMPONENTS)
 
                 # Critical check on server's response timing.
