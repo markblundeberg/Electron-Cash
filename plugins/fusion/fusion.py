@@ -16,7 +16,7 @@ from electroncash import schnorr
 from .comms import open_connection, send_pb, recv_pb
 from . import fusion_pb2 as pb
 from . import pedersen
-from .covert import CovertSubmitter, Scheduler, is_tor_port
+from .covert import CovertSubmitter, is_tor_port
 from .util import PROTOCOL_VERSION, PedersenFusion, FusionError, sha256, listhash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
 from .validation import validate_proof_internal, ValidationError, check_input_electrumx
 from . import encrypt
@@ -50,6 +50,8 @@ DEFAULT_SELF_FUSE = 1
 COVERT_CONNECT_TIMEOUT = 10.0
 # likewise for submitted data (which is quite small), we don't want it going too late.
 COVERT_SUBMIT_TIMEOUT = 3.0
+# What timespan to make covert submissions over.
+COVERT_SUBMIT_WINDOW = 5.0
 
 # timeframe for making connections
 COVERT_T_FIRST_CONNECT = +0.0
@@ -57,13 +59,13 @@ COVERT_T_LAST_CONNECT = +5.0
 
 # (note -- the server expects to have all commitments received by +3.0 s.)
 # when to start and stop submitting covert components; the BlindSigResponses must have been received by this time.
-COVERT_T_START_COMPS = +5.0
-COVERT_T_STOP_COMPS = +20.0
+COVERT_T_START_COMPS = +15.0
+# COVERT_T_STOP_COMPS = COVERT_T_START_COMPS + COVERT_SUBMIT_WINDOW
 
 # (note -- the server expects to have all components received by +25.0 s.)
 # when to start and stop submitting signatures; the ShareCovertComponents must be received by this time.
 COVERT_T_START_SIGS = +30.0
-COVERT_T_STOP_SIGS = +35.0
+# COVERT_T_STOP_SIGS = COVERT_T_START_SIGS + COVERT_SUBMIT_WINDOW
 
 # (note -- the server expects to have all signatures received by +40.0 s.)
 COVERT_T_EXPECTING_CONCLUSION = +50.0
@@ -381,7 +383,6 @@ class Fusion(threading.Thread, PrintError):
         super().start()
 
     def run(self):
-        scheduler = None
         try:
             if not (schnorr.has_fast_sign() and schnorr.has_fast_verify()):
                 raise FusionError("Fusion requires libsecp")
@@ -418,12 +419,11 @@ class Fusion(threading.Thread, PrintError):
 
                 # Pool started. Keep running rounds until fail or complete.
                 roundcount = 0
-                scheduler = Scheduler(time.monotonic, name=f"Fusion Covert ({self.target_wallet.diagnostic_name()})", num_threads = 20, inactive_timeout = 60)
                 while True:
                     roundcount += 1
                     self.status = ('running', 'Starting round {}'.format(roundcount))
                     try:
-                        if self.run_round(scheduler):
+                        if self.run_round():
                             break
                     except RestartRound:
                         pass
@@ -449,8 +449,6 @@ class Fusion(threading.Thread, PrintError):
             traceback.print_exc(file=sys.stderr)
             self.status = ('failed', 'Exception {}: {}'.format(type(exc).__name__, exc))
         finally:
-            if scheduler is not None:
-                scheduler.no_more_jobs()
             self.clear_coins()
             if self.status[0] != 'complete':
                 for amount, addr in self.outputs:
@@ -493,7 +491,7 @@ class Fusion(threading.Thread, PrintError):
         self.min_excess_fee = reply.min_excess_fee
         self.max_excess_fee = reply.max_excess_fee
         self.available_tiers = tuple(reply.tiers)
-        
+
         # Enforce some sensible limits, in case server is crazy
         if (self.component_feerate > 5000):
             raise FusionError('excessive component feerate from server')
@@ -647,11 +645,11 @@ class Fusion(threading.Thread, PrintError):
         self.reserved_addresses = out_addrs
         self.outputs = list(zip(out_amounts, out_addrs))
 
-    def run_round(self, scheduler):
+    def run_round(self):
         msg = self.recv('startround', timeout=15)
         # record the time we got this message; it forms the basis time for all
         # covert activities.
-        clock = scheduler.clock
+        clock = time.monotonic
         covert_T0 = clock()
         covert_clock = lambda: clock() - covert_T0
 
@@ -673,9 +671,9 @@ class Fusion(threading.Thread, PrintError):
             raise FusionError('badly encoded covert domain')
 
         # launch the covert submitter
-        covert = CovertSubmitter(covert_domain, covert_port, False, self.tor_host, self.tor_port, scheduler, self.num_components, 6, COVERT_CONNECT_TIMEOUT, COVERT_SUBMIT_TIMEOUT)
+        covert = CovertSubmitter(covert_domain, covert_port, False, self.tor_host, self.tor_port, self.num_components, COVERT_SUBMIT_WINDOW, COVERT_SUBMIT_TIMEOUT)
         try:
-            covert.schedule_connections(covert_T0 + COVERT_T_FIRST_CONNECT, covert_T0 + COVERT_T_LAST_CONNECT)
+            covert.schedule_connections(covert_T0 + COVERT_T_FIRST_CONNECT, covert_T0 + COVERT_T_LAST_CONNECT, 6, COVERT_CONNECT_TIMEOUT)
 
             num_blanks = self.num_components - len(self.coins) - len(self.outputs)
             (mycommitments, mycomponenttypes, mycomponents, myproofs, privkeys), pedersen_amount, pedersen_nonce = gen_components(num_blanks, self.coins, self.outputs, self.component_feerate)
@@ -719,13 +717,12 @@ class Fusion(threading.Thread, PrintError):
             # randomly. We don't want to stop them
             # all at once, since if we had already provided our input components
             # then it would be a leak to have them all drop at once.
-            covert.set_stop_times(covert_T0 + COVERT_T_START_CLOSE, covert_T0 + COVERT_T_STOP_CLOSE)
+            covert.set_stop_time(covert_T0 + COVERT_T_START_CLOSE)
 
-            # Schedule covert submissions. For outputs and blanks, close immediately once done.
+            # Schedule covert submissions.
             for i, (comp, ctype, sig) in enumerate(zip(mycomponents, mycomponenttypes, blindsigs)):
                 msg = pb.CovertComponent(round_pubkey = round_pubkey, signature = sig, component = comp)
-                covert.schedule_submit(i, covert_T0 + COVERT_T_START_COMPS, covert_T0 + COVERT_T_STOP_COMPS,
-                                            msg, close_after = (ctype != 'i'))
+                covert.schedule_submit(i, covert_T0 + COVERT_T_START_COMPS,  msg)
 
             remtime = COVERT_T_START_SIGS - covert_clock()
             assert remtime > 0, "times misconfigured"
@@ -803,8 +800,7 @@ class Fusion(threading.Thread, PrintError):
 
                     msg = pb.CovertTransactionSignature(txsignature = sig, which_input = i)
 
-                    covert.schedule_submit(mycompidx, covert_T0 + COVERT_T_START_SIGS, covert_T0 + COVERT_T_STOP_SIGS,
-                                                msg, close_after = True)
+                    covert.schedule_submit(mycompidx, covert_T0 + COVERT_T_START_SIGS, msg)
 
                 remtime = COVERT_T_EXPECTING_CONCLUSION - covert_clock()
                 assert remtime > 0, "times misconfigured"

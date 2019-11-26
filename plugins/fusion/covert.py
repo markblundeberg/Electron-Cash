@@ -7,13 +7,12 @@ Covert submission mechanism
 - Close the connections at random times.
 - Keep some spare connections in case of problems.
 
-This is accomplished using a Scheduler with a thread pool.
+Each connection gets its own thread.
 """
 
 import socket, socks
 
-from .scheduler import Scheduler
-from .comms import open_connection, send_pb, recv_pb, pb
+from .comms import open_connection, send_pb, recv_pb, pb, FusionError
 
 import time
 import threading, sys
@@ -23,7 +22,15 @@ from collections import deque
 
 from electroncash.util import PrintError
 
+# how long to remember attempting Tor connections
 TOR_COOLDOWN_TIME = 660 #seconds
+
+# how long a covert connection is allowed to stay alive without anything happening (as a sanity check measure)
+TIMEOUT_INACTIVE_CONNECTION = 120
+
+# Used internally
+class Unrecoverable(FusionError):
+    pass
 
 def is_tor_port(host, port):
     if not 0 <= port < 65536:
@@ -82,10 +89,63 @@ class TorLimiter:
 
 limiter = TorLimiter(TOR_COOLDOWN_TIME)
 
+def rand_trap(rng):
+    """ Random number between 0 and 1 according to trapezoid distribution.
+    a = 0
+    b = 1/4
+    c = 3/4
+    d = 1
+    Peak density is 1.333.
+    """
+    sixth = 1./6
+    f = rng.random()
+    fc = 1. - f
+    if f < sixth:
+        return math.sqrt(0.375 * f)
+    elif fc < sixth:
+        return 1. - math.sqrt(0.375 * fc)
+    else:
+        return 0.75*f + 0.125
+
+class CovertConnection:
+    connection = None
+    slotnum = None
+    t_ping = None
+    conn_number = None
+    def __init__(self):
+        self.wakeup = threading.Event()
+    def wait_wakeup_or_time(self, t):
+        remtime = max(0., t - time.monotonic())
+        was_set = self.wakeup.wait(remtime)
+        self.wakeup.clear()
+        return was_set
+    def ping(self):
+        send_pb(self.connection, pb.CovertMessage, pb.Ping(), 1)
+        self.t_ping = None
+    def inactive(self):
+        raise Unrecoverable("timed out from inactivity (this is a bug!)")
+
+class CovertSlot:
+    def __init__(self, submit_timeout):
+        self.submit_timeout = submit_timeout
+        self.t_submit = None # The requested start time of work.
+        self.submsg = None # The work to be done.
+        self.done = True # Whether last work requested is done.
+        self.covconn = None # which CovertConnection is assigned to work on this slot
+    def submit(self):
+        connection = self.covconn.connection
+        send_pb(connection, pb.CovertMessage, self.submsg, timeout=self.submit_timeout)
+        resmsg, mtype = recv_pb(connection, pb.CovertResponse, 'ok', 'error', timeout=self.submit_timeout)
+        if mtype == 'error':
+            raise Unrecoverable('error from server: ' + repr(resmsg.message))
+        self.done = True
+        self.t_submit = None
+        self.covconn.t_ping = None # if a submission is done, no ping is needed.
+
 class CovertSubmitter(PrintError):
     stopping = False
 
-    def __init__(self, dest_addr, dest_port, ssl, tor_host, tor_port, scheduler, num_slots, num_spares, connect_timeout, submit_timeout):
+    def __init__(self, dest_addr, dest_port, ssl, tor_host, tor_port, num_slots, randspan, submit_timeout):
         self.dest_addr = dest_addr
         self.dest_port = dest_port
         self.ssl = ssl
@@ -95,184 +155,221 @@ class CovertSubmitter(PrintError):
         else:
             self.proxy_opts = dict(proxy_type = socks.SOCKS5, proxy_addr=tor_host, proxy_port = tor_port, proxy_rdns = True)
 
-        self.scheduler = scheduler
-
-        self.connect_timeout = connect_timeout
+        # The timespan (in s) used for randomizing action times on established
+        # connections. Each connection chooses a delay between 0 and randspan,
+        # and every action (submitting data, pinging, or closing) on that
+        # connection gets performed with the same delay relative to the scheduled
+        # timeframe. The connection establishment itself happens with an
+        # unrelated random time.
+        self.randspan = randspan
+        # We don't let submissions take too long, in order to make sure a spare can still be tried.
         self.submit_timeout = submit_timeout
 
-        # If .stop() is called, it will use these times (settable with .set_stop_time)
-        # to randomize the disconnection times. Note that .stop() may be called at any time
-        # in case of a failure where there are no more spare connections left.
-        self.stop_tstart = self.stop_tstop = scheduler.clock()
-
-        self.lock = threading.Lock()
+        # If .stop() is called, it will use this timeframe (settable with .set_stop_time)
+        # to randomize the disconnection times. Note that .stop() may be internally
+        # invoked at any time in case of a failure where there are no more spare
+        # connections left.
+        self.stop_tstart = time.monotonic() - randspan
 
         # Our internal logic is as follows:
-        #  - Sending of data happens on a "slot". That way, related data (with same slot number) gets sent on the same connection.
-        #  - Each slot owns a particular connection, though it may yet be pending.
-        #  - Once a connection is established and work exists for the slot, the work should be done ASAP.
-        #    - Once work is happening, the slot's connection ownership is temporarily set to None to prevent more than one thread working at a time.
-        #  - If a connection attempt or data submission fails, then the slot is immediately redirected to an unused spare connection, which may be pending or complete.
-        #  - If a failure can find no spare connection, the entire process is stopped (using .stop).
+        #  - Each connection is its own thread, which starts with opening the socket and ends once the socket is dead.
+        #  - Pending connections are also connections.
+        #  - There are N slots and M connections, N <= M in normal operation. Each slot has a connection, but some connections are spare.
+        #  - Sending of data happens on a "slot". That way, related data (with same slot number) gets sent on the same connection whenever possible.
+        #  - Each connection has its own random offset parameter, which it uses to offset its actions during each covert phase.
+        #    In other words, each channel leaks minimal information about the actual timeframe, provided the timeframes are equal in length.
+        #  - When a connection dies / times out and it was assigned to a slot, it immediately reassigns the slot to another connection.
+        #    If reassignment is not possible, then the entire covert submission mechanism stops itself.
 
-        self.slot_connections = list(range(num_slots)) # which connection indices are owned by slots
-        self.slot_work = [[] for _ in range(num_slots)] # jobs to be done on the slot immediately, once connection available.
+        self.slots  = [CovertSlot(self.submit_timeout) for _ in range(num_slots)]
 
-        # Connections start out as None and then become a Connection object once they are established.
-        self.connections = [None]*(num_slots + num_spares)
-        self.unused_connections = list(range(num_slots, num_slots + num_spares))
+        self.spare_connections = []
 
-        self.locks = [threading.Lock() for _ in range(num_slots)]
-
-        # If too many failures occur, this will be set to the first exception.
+        # This will be set to the exception that caused a stoppage:
+        # - the first connection error were a spare was not available
+        # - the first unrecoverable error from server
         self.failure_exception = None
 
         self.randtag = secrets.token_urlsafe(12) # for proxy login
         self.rng = random.Random(secrets.token_bytes(32)) # for timings
 
-    def randtime(self, tstart, tend):
-        """ Random number between 0 and 1 according to raised cosine
-        distribution. We use a raised cosine due to its highly smooth edges,
-        which do not give away our exact start/end times.
-        """
-        x = math.acos(1 - 2 * self.rng.random()) / math.pi
-        return tstart + (tend - tstart) * x
+        self.count_attempted = 0 # how many connections have been attempted (or are being attempted)
+        self.count_established = 0 # how many connections were made successfully
+        self.count_failed = 0 # how many connections could not be made
 
-    def set_stop_times(self, tstart, tend):
+        self.lock = threading.RLock()
+
+    def wake_all(self,):
         with self.lock:
-            self.stop_tstart = tstart
-            self.stop_tstop = tend
+            for s in self.slots:
+                if s.covconn:
+                    s.covconn.wakeup.set()
+            for c in self.spare_connections:
+                c.wakeup.set()
+
+    def set_stop_time(self, tstart):
+        self.stop_tstart = tstart
+        if self.stopping:
+            self.wake_all()
 
     def stop(self, _exception=None):
         """ Schedule any established connections to close at random times, and
         stop any pending connections and pending work.
-
-        If some submissions are active when the connection actually closes, slightly
-        weird things might happen. """
+        """
         with self.lock:
             if self.stopping:
                 # already requested!
                 return
             self.failure_exception = _exception
             self.stopping = True
-            self.unused_connections = []
+            self.print_error(f"stopping; connections will close in ~{self.stop_tstart - time.monotonic():.3f}s")
+            self.wake_all()
 
-            for connection in self.connections:
-                self._schedule_stop_connection(connection)
+    def schedule_connections(self, tstart, tend, num_spares = 0, connect_timeout = 10):
+        """ Schedule connections to start. For any slots without a connection,
+        they will have one allocated. Additionally, new spare connections will
+        be started until the number of remaining spares is >= num_spares.
 
-    def _schedule_stop_connection(self, connection):
-        if connection is None:
-            return
-        t = self.randtime(self.stop_tstart, self.stop_tstop)
-        self.scheduler.schedule_job(t, lambda jn, lag, c=connection: c.close())
+        This gets called after instance creation, but can be called again
+        later on, if new spares are needed.
+        """
+        with self.lock:
+            newconns = []
+            for snum, s in enumerate(self.slots):
+                if s.covconn is None:
+                    s.covconn = CovertConnection()
+                    s.covconn.slotnum = snum
+                    newconns.append(s.covconn)
 
-    def schedule_connections(self, tstart, tend):
-        for cnum in range(len(self.connections)):
-            t = self.randtime(tstart, tend)
-            self.scheduler.schedule_job(t, partial(self.run_connect, cnum))
+            num_new_spares = max(0, num_spares - len(self.spare_connections))
+            new_spares = [CovertConnection() for _ in range(num_new_spares)]
+            self.spare_connections = new_spares + self.spare_connections
 
-    def schedule_submit(self, slot_num, tstart, tend, submsg, close_after = False):
-        t = self.randtime(tstart, tend)
-        self.scheduler.schedule_job(t, partial(self.run_submit, slot_num, submsg, close_after))
+            newconns.extend(new_spares)
+            for covconn in newconns:
+                covconn.conn_number = self.count_attempted
+                self.count_attempted += 1
+                conn_time = tstart + (tend-tstart) * rand_trap(self.rng)
+                rand_delay = self.randspan * rand_trap(self.rng)
+                thread = threading.Thread(name=f'CovertSubmitter-{covconn.conn_number}',
+                                          target=self.run_connection,
+                                          args=(covconn, conn_time, rand_delay, connect_timeout,),
+                                          )
+                thread.daemon = True
+                thread.start()
+                # GC note - no reference is kept to the thread. When it dies,
+                # the target bound method dies. If all threads die and the
+                # CovertSubmitter has no external references, then refcounts
+                # should all drop to 0.
 
-    def _reallocate_slot(self, slot_num, exception):
+    def schedule_submit(self, slot_num, tstart, submsg):
+        """ Schedule a submission on a specific slot. """
+        slot = self.slots[slot_num]
+        assert slot.done, "tried to set new work when prior work not done"
+        slot.submsg = submsg
+        slot.done = False
+        slot.t_submit = tstart
+        covconn = slot.covconn
+        if covconn is not None:
+            covconn.wakeup.set()
+
+    def run_connection(self, covconn, conn_time, rand_delay, connect_timeout):
+        # Main loop for connection thread
+
+        while covconn.wait_wakeup_or_time(conn_time):
+            # if we are woken up before connection and stopping is happening, then just don't make a connection at all
+            if self.stopping:
+                return
+        tbegin = time.monotonic()
         try:
-            self.slot_connections[slot_num] = self.unused_connections.pop()
-        except IndexError:
-            self.slot_connections[slot_num] = 'failed'
-            self.stop(_exception = exception)
-
-    # Run in worker threads
-    def run_connect(self, connection_num, job_num, lag):
-        if self.stopping:
-            return
-        tbegin = self.scheduler.clock()
-        limiter.bump()
-        try:
+            # STATE 1 - connecting
             if self.proxy_opts is None:
                 proxy_opts = None
             else:
-                unique = f'{self.randtag}_{connection_num}'
+                unique = f'CF{self.randtag}_{covconn.conn_number}'
                 proxy_opts = dict(proxy_username = unique, proxy_password = unique)
                 proxy_opts.update(self.proxy_opts)
-            connection = open_connection(self.dest_addr, self.dest_port, conn_timeout=self.connect_timeout, ssl=self.ssl, socks_opts = proxy_opts)
-            tend = self.scheduler.clock()
-            self.print_error(f"connection established. conn time: {lag:.3f}s+{(tend-tbegin):.3f}s")
-        except Exception as e:
-            exception = e
-            connection = None
-            tend = self.scheduler.clock()
-            self.print_error(f"covert connection failed (after {lag:.3f}s+{(tend-tbegin):.3f}s): {e}")
-
-        with self.lock:
-            if self.stopping and connection is not None:
-                # Oh, stop was signalled while we were connecting ...
-                self._schedule_stop_connection(connection)
-                return
-
-            assert self.connections[connection_num] is None
-            self.connections[connection_num] = connection
-
-            # Find out if a slot owns us... if so, we should deal with that.
+            limiter.bump()
             try:
-                slot_num = self.slot_connections.index(connection_num)
-            except ValueError:
-                return
-
-        if connection is None:
-            # A slot was waiting for us to connect, but we failed. Try another connection.
-            self._reallocate_slot(slot_num, exception)
-
-        self.try_work_on_slot(slot_num)
-
-    def run_submit(self, slot_num, submsg, close_after, job_num, lag):
-        def work(connection):
-            send_pb(connection, pb.CovertMessage, submsg, timeout=self.submit_timeout)
-            resmsg, mtype = recv_pb(connection, pb.CovertResponse, 'ok', 'error', timeout=self.submit_timeout)
-            if mtype == 'error':
-                self.stop(_exception = FusionError('error from server: ' + repr(resmsg.message)))
-            if close_after:
-                connection.close()
-            self.print_error(f"covert work successful (lag={lag:.3f})")
-
-        self.slot_work[slot_num].append(work)
-
-        self.try_work_on_slot(slot_num)
-
-    def try_work_on_slot(self, slot_num):
-        while True:
+                connection = open_connection(self.dest_addr, self.dest_port, conn_timeout=connect_timeout, ssl=self.ssl, socks_opts = proxy_opts)
+                covconn.connection = connection
+            except Exception as e:
+                with self.lock:
+                    self.count_failed += 1
+                tend = time.monotonic()
+                self.print_error(f"could not establish connection (after {(tend-tbegin):.3f}s): {e}")
+                raise
             with self.lock:
-                connection_num = self.slot_connections[slot_num]
-                if not isinstance(connection_num, int):
-                    # Slot is not available.
-                    return
+                self.count_established += 1
+            tend = time.monotonic()
+            self.print_error(f"[{covconn.conn_number}] connection established after {(tend-tbegin):.3f}s")
 
-                connection = self.connections[connection_num]
-                if connection is None:
-                    # Connection not yet established.
-                    return
+            covconn.delay = rand_trap(self.rng) * self.randspan
+            last_action_time = time.monotonic()
 
+            # STATE 2 - working
+            while not self.stopping:
+                # (First preference: stop)
+                nexttime = None
+                slotnum = covconn.slotnum
+                # Second preference: submit something
+                if slotnum is not None:
+                    slot = self.slots[slotnum]
+                    nexttime = slot.t_submit
+                    action = slot.submit
+                # Third preference: send a ping
+                if nexttime is None and covconn.t_ping is not None:
+                    nexttime = covconn.t_ping
+                    action = covconn.ping
+                # Last preference: wait doing nothing
+                if nexttime is None:
+                    nexttime = last_action_time + TIMEOUT_INACTIVE_CONNECTION
+                    action = covconn.inactive
+
+                nexttime += rand_delay
+
+                if covconn.wait_wakeup_or_time(nexttime):
+                    # got woken up ... let's go back and reevaluate what to do
+                    continue
+
+                # reached action time, time to do it
+                label = f"[{covconn.conn_number}-{slotnum}-{action.__name__}]"
                 try:
-                    work = self.slot_work[slot_num][0]
-                except IndexError:
-                    return
+                    action()
+                except Unrecoverable as e:
+                    self.print_error(f"{label} unrecoverable {e}")
+                    self.stop(_exception=e)
+                    raise
+                except Exception as e:
+                    self.print_error(f"{label} error {e}")
+                    raise
+                else:
+                    self.print_error(f"{label} done")
+                last_action_time = time.monotonic()
 
-                # We now have an active connection and work to do.
-                # Reserve this slot before we unlock.
-                self.slot_connections[slot_num] = None
-
-            # do the work
-            try:
-                if not self.stopping:
-                    work(connection)
-            except Exception as exception:
-                self.print_error("covert work failed")
-                # didn't succeed!
-                # make sure connection is fully closed then try to get a new connection.
-                connection.close()
-                self._reallocate_slot(slot_num, exception)
-                # import traceback ; traceback.print_exc(file=sys.stderr) # DEBUG
-                continue
-            # success - remove the work from queue and unreserve slot
-            self.slot_work[slot_num].pop(0)
-            self.slot_connections[slot_num] = connection_num
+            # STATE 3 - stopping
+            while True:
+                stoptime = self.stop_tstart + rand_delay
+                if not covconn.wait_wakeup_or_time(stoptime):
+                    break
+            self.print_error(f"[{covconn.conn_number}] closing from stop")
+        except Exception as e:
+            # in case of any problem, record the exception and if we have a slot, reassign it.
+            exception = e
+            with self.lock:
+                slotnum = covconn.slotnum
+                if slotnum is not None:
+                    try:
+                        spare = self.spare_connections.pop()
+                    except IndexError:
+                        # We failed, and there are no spares. Party is over!
+                        self.stop(_exception = exception)
+                    else:
+                        # Found a spare.
+                        self.slots[slotnum].covconn = spare
+                        spare.slotnum = slotnum
+                        spare.wakeup.set()
+                        covconn.slotnum = None
+        finally:
+            if covconn.connection:
+                covconn.connection.close()
