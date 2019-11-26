@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='fusion',
   syntax='proto2',
   serialized_options=None,
-  serialized_pb=_b('\n\x0c\x66usion.proto\x12\x06\x66usion\"W\n\x0eInputComponent\x12\x11\n\tprev_txid\x18\x01 \x02(\x0c\x12\x12\n\nprev_index\x18\x02 \x02(\r\x12\x0e\n\x06pubkey\x18\x03 \x02(\x0c\x12\x0e\n\x06\x61mount\x18\x04 \x02(\x04\"7\n\x0fOutputComponent\x12\x14\n\x0cscriptpubkey\x18\x01 \x02(\x0c\x12\x0e\n\x06\x61mount\x18\x02 \x02(\x04\"\x10\n\x0e\x42lankComponent\"\xae\x01\n\tComponent\x12\x17\n\x0fsalt_commitment\x18\x01 \x02(\x0c\x12\'\n\x05input\x18\x02 \x01(\x0b\x32\x16.fusion.InputComponentH\x00\x12)\n\x06output\x18\x03 \x01(\x0b\x32\x17.fusion.OutputComponentH\x00\x12\'\n\x05\x62lank\x18\x04 \x01(\x0b\x32\x16.fusion.BlankComponentH\x00\x42\x0b\n\tcomponent\"h\n\x11InitialCommitment\x12\x1d\n\x15salted_component_hash\x18\x01 \x02(\x0c\x12\x19\n\x11\x61mount_commitment\x18\x02 \x02(\x0c\x12\x19\n\x11\x63ommunication_key\x18\x03 \x02(\x0c\"D\n\x05Proof\x12\x15\n\rcomponent_idx\x18\x01 \x02(\x07\x12\x0c\n\x04salt\x18\x02 \x02(\x0c\x12\x16\n\x0epedersen_nonce\x18\x03 \x02(\x0c\"\x1e\n\x0b\x43lientHello\x12\x0f\n\x07version\x18\x01 \x02(\x0c\"\x7f\n\x0bServerHello\x12\r\n\x05tiers\x18\x01 \x03(\x04\x12\x16\n\x0enum_components\x18\x02 \x02(\r\x12\x19\n\x11\x63omponent_feerate\x18\x04 \x02(\x04\x12\x16\n\x0emin_excess_fee\x18\x05 \x02(\x04\x12\x16\n\x0emax_excess_fee\x18\x06 \x02(\x04\"x\n\tJoinPools\x12\r\n\x05tiers\x18\x01 \x03(\x04\x12\'\n\x04tags\x18\x02 \x03(\x0b\x32\x19.fusion.JoinPools.PoolTag\x1a\x33\n\x07PoolTag\x12\n\n\x02id\x18\x01 \x02(\x0c\x12\r\n\x05limit\x18\x02 \x02(\r\x12\r\n\x05no_ip\x18\x03 \x01(\x08\"\x83\x02\n\x10TierStatusUpdate\x12\x38\n\x08statuses\x18\x01 \x03(\x0b\x32&.fusion.TierStatusUpdate.StatusesEntry\x1a_\n\nTierStatus\x12\x0f\n\x07players\x18\x01 \x01(\r\x12\x13\n\x0bmin_players\x18\x02 \x01(\r\x12\x13\n\x0bmax_players\x18\x03 \x01(\r\x12\x16\n\x0etime_remaining\x18\x04 \x01(\r\x1aT\n\rStatusesEntry\x12\x0b\n\x03key\x18\x01 \x01(\x04\x12\x32\n\x05value\x18\x02 \x01(\x0b\x32#.fusion.TierStatusUpdate.TierStatus:\x02\x38\x01\"\x1b\n\x0b\x46usionBegin\x12\x0c\n\x04tier\x18\x01 \x02(\x04\"j\n\nStartRound\x12\x14\n\x0cround_pubkey\x18\x01 \x02(\x0c\x12\x1a\n\x12\x62lind_nonce_points\x18\x02 \x03(\x0c\x12\x15\n\rcovert_domain\x18\x03 \x02(\x0c\x12\x13\n\x0b\x63overt_port\x18\x04 \x02(\r\"\x9b\x01\n\x0cPlayerCommit\x12\x1b\n\x13initial_commitments\x18\x01 \x03(\x0c\x12\x12\n\nexcess_fee\x18\x02 \x02(\x04\x12\x1c\n\x14pedersen_total_nonce\x18\x03 \x02(\x0c\x12 \n\x18random_number_commitment\x18\x04 \x02(\x0c\x12\x1a\n\x12\x62lind_sig_requests\x18\x05 \x03(\x0c\"$\n\x11\x42lindSigResponses\x12\x0f\n\x07scalars\x18\x01 \x03(\x0c\"-\n\x0e\x41llCommitments\x12\x1b\n\x13initial_commitments\x18\x01 \x03(\x0c\"M\n\x0f\x43overtComponent\x12\x14\n\x0cround_pubkey\x18\x01 \x01(\x0c\x12\x11\n\tsignature\x18\x02 \x02(\x0c\x12\x11\n\tcomponent\x18\x03 \x02(\x0c\"Z\n\x15ShareCovertComponents\x12\x12\n\ncomponents\x18\x04 \x03(\x0c\x12\x17\n\x0fskip_signatures\x18\x05 \x01(\x08\x12\x14\n\x0csession_hash\x18\x06 \x01(\x0c\"\\\n\x1a\x43overtTransactionSignature\x12\x14\n\x0cround_pubkey\x18\x01 \x01(\x0c\x12\x13\n\x0bwhich_input\x18\x02 \x02(\r\x12\x13\n\x0btxsignature\x18\x03 \x02(\x0c\"H\n\x0c\x46usionResult\x12\n\n\x02ok\x18\x01 \x02(\x08\x12\x14\n\x0ctxsignatures\x18\x02 \x03(\x0c\x12\x16\n\x0e\x62\x61\x64_components\x18\x03 \x03(\r\"?\n\x0cMyProofsList\x12\x18\n\x10\x65ncrypted_proofs\x18\x01 \x03(\x0c\x12\x15\n\rrandom_number\x18\x02 \x02(\x0c\"\xa1\x01\n\x0fTheirProofsList\x12\x34\n\x06proofs\x18\x01 \x03(\x0b\x32$.fusion.TheirProofsList.RelayedProof\x1aX\n\x0cRelayedProof\x12\x17\n\x0f\x65ncrypted_proof\x18\x01 \x02(\x0c\x12\x1a\n\x12src_commitment_idx\x18\x02 \x02(\r\x12\x13\n\x0b\x64st_key_idx\x18\x03 \x02(\r\"\xc4\x01\n\x06\x42lames\x12)\n\x06\x62lames\x18\x01 \x03(\x0b\x32\x19.fusion.Blames.BlameProof\x1a\x8e\x01\n\nBlameProof\x12\x13\n\x0bwhich_proof\x18\x01 \x02(\r\x12\x15\n\x0bsession_key\x18\x02 \x01(\x0cH\x00\x12\x11\n\x07privkey\x18\x03 \x01(\x0cH\x00\x12\x1e\n\x16need_lookup_blockchain\x18\x04 \x01(\x08\x12\x14\n\x0c\x62lame_reason\x18\x05 \x01(\tB\x0b\n\tdecrypter\"\x1f\n\x0cRestartRound\x12\x0f\n\x07message\x18\x01 \x01(\t\"\x18\n\x05\x45rror\x12\x0f\n\x07message\x18\x01 \x01(\t\"\x06\n\x04Ping\"\x04\n\x02OK\"\xe8\x01\n\rClientMessage\x12*\n\x0b\x63lienthello\x18\x01 \x01(\x0b\x32\x13.fusion.ClientHelloH\x00\x12&\n\tjoinpools\x18\x02 \x01(\x0b\x32\x11.fusion.JoinPoolsH\x00\x12,\n\x0cplayercommit\x18\x03 \x01(\x0b\x32\x14.fusion.PlayerCommitH\x00\x12,\n\x0cmyproofslist\x18\x05 \x01(\x0b\x32\x14.fusion.MyProofsListH\x00\x12 \n\x06\x62lames\x18\x06 \x01(\x0b\x32\x0e.fusion.BlamesH\x00\x42\x05\n\x03msg\"\xa8\x04\n\rServerMessage\x12*\n\x0bserverhello\x18\x01 \x01(\x0b\x32\x13.fusion.ServerHelloH\x00\x12\x34\n\x10tierstatusupdate\x18\x02 \x01(\x0b\x32\x18.fusion.TierStatusUpdateH\x00\x12*\n\x0b\x66usionbegin\x18\x03 \x01(\x0b\x32\x13.fusion.FusionBeginH\x00\x12(\n\nstartround\x18\x04 \x01(\x0b\x32\x12.fusion.StartRoundH\x00\x12\x36\n\x11\x62lindsigresponses\x18\x05 \x01(\x0b\x32\x19.fusion.BlindSigResponsesH\x00\x12\x30\n\x0e\x61llcommitments\x18\x06 \x01(\x0b\x32\x16.fusion.AllCommitmentsH\x00\x12>\n\x15sharecovertcomponents\x18\x07 \x01(\x0b\x32\x1d.fusion.ShareCovertComponentsH\x00\x12,\n\x0c\x66usionresult\x18\x08 \x01(\x0b\x32\x14.fusion.FusionResultH\x00\x12\x32\n\x0ftheirproofslist\x18\t \x01(\x0b\x32\x17.fusion.TheirProofsListH\x00\x12,\n\x0crestartround\x18\x0e \x01(\x0b\x32\x14.fusion.RestartRoundH\x00\x12\x1e\n\x05\x65rror\x18\x0f \x01(\x0b\x32\r.fusion.ErrorH\x00\x42\x05\n\x03msg\"\x9b\x01\n\rCovertMessage\x12,\n\tcomponent\x18\x01 \x01(\x0b\x32\x17.fusion.CovertComponentH\x00\x12\x37\n\tsignature\x18\x02 \x01(\x0b\x32\".fusion.CovertTransactionSignatureH\x00\x12\x1c\n\x04ping\x18\x03 \x01(\x0b\x32\x0c.fusion.PingH\x00\x42\x05\n\x03msg\"Q\n\x0e\x43overtResponse\x12\x18\n\x02ok\x18\x01 \x01(\x0b\x32\n.fusion.OKH\x00\x12\x1e\n\x05\x65rror\x18\x0f \x01(\x0b\x32\r.fusion.ErrorH\x00\x42\x05\n\x03msg')
+  serialized_pb=_b('\n\x0c\x66usion.proto\x12\x06\x66usion\"W\n\x0eInputComponent\x12\x11\n\tprev_txid\x18\x01 \x02(\x0c\x12\x12\n\nprev_index\x18\x02 \x02(\r\x12\x0e\n\x06pubkey\x18\x03 \x02(\x0c\x12\x0e\n\x06\x61mount\x18\x04 \x02(\x04\"7\n\x0fOutputComponent\x12\x14\n\x0cscriptpubkey\x18\x01 \x02(\x0c\x12\x0e\n\x06\x61mount\x18\x02 \x02(\x04\"\x10\n\x0e\x42lankComponent\"\xae\x01\n\tComponent\x12\x17\n\x0fsalt_commitment\x18\x01 \x02(\x0c\x12\'\n\x05input\x18\x02 \x01(\x0b\x32\x16.fusion.InputComponentH\x00\x12)\n\x06output\x18\x03 \x01(\x0b\x32\x17.fusion.OutputComponentH\x00\x12\'\n\x05\x62lank\x18\x04 \x01(\x0b\x32\x16.fusion.BlankComponentH\x00\x42\x0b\n\tcomponent\"h\n\x11InitialCommitment\x12\x1d\n\x15salted_component_hash\x18\x01 \x02(\x0c\x12\x19\n\x11\x61mount_commitment\x18\x02 \x02(\x0c\x12\x19\n\x11\x63ommunication_key\x18\x03 \x02(\x0c\"D\n\x05Proof\x12\x15\n\rcomponent_idx\x18\x01 \x02(\x07\x12\x0c\n\x04salt\x18\x02 \x02(\x0c\x12\x16\n\x0epedersen_nonce\x18\x03 \x02(\x0c\"\x1e\n\x0b\x43lientHello\x12\x0f\n\x07version\x18\x01 \x02(\x0c\"\x7f\n\x0bServerHello\x12\r\n\x05tiers\x18\x01 \x03(\x04\x12\x16\n\x0enum_components\x18\x02 \x02(\r\x12\x19\n\x11\x63omponent_feerate\x18\x04 \x02(\x04\x12\x16\n\x0emin_excess_fee\x18\x05 \x02(\x04\x12\x16\n\x0emax_excess_fee\x18\x06 \x02(\x04\"x\n\tJoinPools\x12\r\n\x05tiers\x18\x01 \x03(\x04\x12\'\n\x04tags\x18\x02 \x03(\x0b\x32\x19.fusion.JoinPools.PoolTag\x1a\x33\n\x07PoolTag\x12\n\n\x02id\x18\x01 \x02(\x0c\x12\r\n\x05limit\x18\x02 \x02(\r\x12\r\n\x05no_ip\x18\x03 \x01(\x08\"\x83\x02\n\x10TierStatusUpdate\x12\x38\n\x08statuses\x18\x01 \x03(\x0b\x32&.fusion.TierStatusUpdate.StatusesEntry\x1a_\n\nTierStatus\x12\x0f\n\x07players\x18\x01 \x01(\r\x12\x13\n\x0bmin_players\x18\x02 \x01(\r\x12\x13\n\x0bmax_players\x18\x03 \x01(\r\x12\x16\n\x0etime_remaining\x18\x04 \x01(\r\x1aT\n\rStatusesEntry\x12\x0b\n\x03key\x18\x01 \x01(\x04\x12\x32\n\x05value\x18\x02 \x01(\x0b\x32#.fusion.TierStatusUpdate.TierStatus:\x02\x38\x01\"[\n\x0b\x46usionBegin\x12\x0c\n\x04tier\x18\x01 \x02(\x04\x12\x15\n\rcovert_domain\x18\x02 \x02(\x0c\x12\x13\n\x0b\x63overt_port\x18\x03 \x02(\r\x12\x12\n\ncovert_ssl\x18\x04 \x01(\x08\">\n\nStartRound\x12\x14\n\x0cround_pubkey\x18\x01 \x02(\x0c\x12\x1a\n\x12\x62lind_nonce_points\x18\x02 \x03(\x0c\"\x9b\x01\n\x0cPlayerCommit\x12\x1b\n\x13initial_commitments\x18\x01 \x03(\x0c\x12\x12\n\nexcess_fee\x18\x02 \x02(\x04\x12\x1c\n\x14pedersen_total_nonce\x18\x03 \x02(\x0c\x12 \n\x18random_number_commitment\x18\x04 \x02(\x0c\x12\x1a\n\x12\x62lind_sig_requests\x18\x05 \x03(\x0c\"$\n\x11\x42lindSigResponses\x12\x0f\n\x07scalars\x18\x01 \x03(\x0c\"-\n\x0e\x41llCommitments\x12\x1b\n\x13initial_commitments\x18\x01 \x03(\x0c\"M\n\x0f\x43overtComponent\x12\x14\n\x0cround_pubkey\x18\x01 \x01(\x0c\x12\x11\n\tsignature\x18\x02 \x02(\x0c\x12\x11\n\tcomponent\x18\x03 \x02(\x0c\"Z\n\x15ShareCovertComponents\x12\x12\n\ncomponents\x18\x04 \x03(\x0c\x12\x17\n\x0fskip_signatures\x18\x05 \x01(\x08\x12\x14\n\x0csession_hash\x18\x06 \x01(\x0c\"\\\n\x1a\x43overtTransactionSignature\x12\x14\n\x0cround_pubkey\x18\x01 \x01(\x0c\x12\x13\n\x0bwhich_input\x18\x02 \x02(\r\x12\x13\n\x0btxsignature\x18\x03 \x02(\x0c\"H\n\x0c\x46usionResult\x12\n\n\x02ok\x18\x01 \x02(\x08\x12\x14\n\x0ctxsignatures\x18\x02 \x03(\x0c\x12\x16\n\x0e\x62\x61\x64_components\x18\x03 \x03(\r\"?\n\x0cMyProofsList\x12\x18\n\x10\x65ncrypted_proofs\x18\x01 \x03(\x0c\x12\x15\n\rrandom_number\x18\x02 \x02(\x0c\"\xa1\x01\n\x0fTheirProofsList\x12\x34\n\x06proofs\x18\x01 \x03(\x0b\x32$.fusion.TheirProofsList.RelayedProof\x1aX\n\x0cRelayedProof\x12\x17\n\x0f\x65ncrypted_proof\x18\x01 \x02(\x0c\x12\x1a\n\x12src_commitment_idx\x18\x02 \x02(\r\x12\x13\n\x0b\x64st_key_idx\x18\x03 \x02(\r\"\xc4\x01\n\x06\x42lames\x12)\n\x06\x62lames\x18\x01 \x03(\x0b\x32\x19.fusion.Blames.BlameProof\x1a\x8e\x01\n\nBlameProof\x12\x13\n\x0bwhich_proof\x18\x01 \x02(\r\x12\x15\n\x0bsession_key\x18\x02 \x01(\x0cH\x00\x12\x11\n\x07privkey\x18\x03 \x01(\x0cH\x00\x12\x1e\n\x16need_lookup_blockchain\x18\x04 \x01(\x08\x12\x14\n\x0c\x62lame_reason\x18\x05 \x01(\tB\x0b\n\tdecrypter\"\x1f\n\x0cRestartRound\x12\x0f\n\x07message\x18\x01 \x01(\t\"\x18\n\x05\x45rror\x12\x0f\n\x07message\x18\x01 \x01(\t\"\x06\n\x04Ping\"\x04\n\x02OK\"\xe8\x01\n\rClientMessage\x12*\n\x0b\x63lienthello\x18\x01 \x01(\x0b\x32\x13.fusion.ClientHelloH\x00\x12&\n\tjoinpools\x18\x02 \x01(\x0b\x32\x11.fusion.JoinPoolsH\x00\x12,\n\x0cplayercommit\x18\x03 \x01(\x0b\x32\x14.fusion.PlayerCommitH\x00\x12,\n\x0cmyproofslist\x18\x05 \x01(\x0b\x32\x14.fusion.MyProofsListH\x00\x12 \n\x06\x62lames\x18\x06 \x01(\x0b\x32\x0e.fusion.BlamesH\x00\x42\x05\n\x03msg\"\xa8\x04\n\rServerMessage\x12*\n\x0bserverhello\x18\x01 \x01(\x0b\x32\x13.fusion.ServerHelloH\x00\x12\x34\n\x10tierstatusupdate\x18\x02 \x01(\x0b\x32\x18.fusion.TierStatusUpdateH\x00\x12*\n\x0b\x66usionbegin\x18\x03 \x01(\x0b\x32\x13.fusion.FusionBeginH\x00\x12(\n\nstartround\x18\x04 \x01(\x0b\x32\x12.fusion.StartRoundH\x00\x12\x36\n\x11\x62lindsigresponses\x18\x05 \x01(\x0b\x32\x19.fusion.BlindSigResponsesH\x00\x12\x30\n\x0e\x61llcommitments\x18\x06 \x01(\x0b\x32\x16.fusion.AllCommitmentsH\x00\x12>\n\x15sharecovertcomponents\x18\x07 \x01(\x0b\x32\x1d.fusion.ShareCovertComponentsH\x00\x12,\n\x0c\x66usionresult\x18\x08 \x01(\x0b\x32\x14.fusion.FusionResultH\x00\x12\x32\n\x0ftheirproofslist\x18\t \x01(\x0b\x32\x17.fusion.TheirProofsListH\x00\x12,\n\x0crestartround\x18\x0e \x01(\x0b\x32\x14.fusion.RestartRoundH\x00\x12\x1e\n\x05\x65rror\x18\x0f \x01(\x0b\x32\r.fusion.ErrorH\x00\x42\x05\n\x03msg\"\x9b\x01\n\rCovertMessage\x12,\n\tcomponent\x18\x01 \x01(\x0b\x32\x17.fusion.CovertComponentH\x00\x12\x37\n\tsignature\x18\x02 \x01(\x0b\x32\".fusion.CovertTransactionSignatureH\x00\x12\x1c\n\x04ping\x18\x03 \x01(\x0b\x32\x0c.fusion.PingH\x00\x42\x05\n\x03msg\"Q\n\x0e\x43overtResponse\x12\x18\n\x02ok\x18\x01 \x01(\x0b\x32\n.fusion.OKH\x00\x12\x1e\n\x05\x65rror\x18\x0f \x01(\x0b\x32\r.fusion.ErrorH\x00\x42\x05\n\x03msg')
 )
 
 
@@ -589,6 +589,27 @@ _FUSIONBEGIN = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='covert_domain', full_name='fusion.FusionBegin.covert_domain', index=1,
+      number=2, type=12, cpp_type=9, label=2,
+      has_default_value=False, default_value=_b(""),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='covert_port', full_name='fusion.FusionBegin.covert_port', index=2,
+      number=3, type=13, cpp_type=3, label=2,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='covert_ssl', full_name='fusion.FusionBegin.covert_ssl', index=3,
+      number=4, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -602,7 +623,7 @@ _FUSIONBEGIN = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=1086,
-  serialized_end=1113,
+  serialized_end=1177,
 )
 
 
@@ -627,20 +648,6 @@ _STARTROUND = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='covert_domain', full_name='fusion.StartRound.covert_domain', index=2,
-      number=3, type=12, cpp_type=9, label=2,
-      has_default_value=False, default_value=_b(""),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='covert_port', full_name='fusion.StartRound.covert_port', index=3,
-      number=4, type=13, cpp_type=3, label=2,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -653,8 +660,8 @@ _STARTROUND = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1115,
-  serialized_end=1221,
+  serialized_start=1179,
+  serialized_end=1241,
 )
 
 
@@ -712,8 +719,8 @@ _PLAYERCOMMIT = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1224,
-  serialized_end=1379,
+  serialized_start=1244,
+  serialized_end=1399,
 )
 
 
@@ -743,8 +750,8 @@ _BLINDSIGRESPONSES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1381,
-  serialized_end=1417,
+  serialized_start=1401,
+  serialized_end=1437,
 )
 
 
@@ -774,8 +781,8 @@ _ALLCOMMITMENTS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1419,
-  serialized_end=1464,
+  serialized_start=1439,
+  serialized_end=1484,
 )
 
 
@@ -819,8 +826,8 @@ _COVERTCOMPONENT = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1466,
-  serialized_end=1543,
+  serialized_start=1486,
+  serialized_end=1563,
 )
 
 
@@ -864,8 +871,8 @@ _SHARECOVERTCOMPONENTS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1545,
-  serialized_end=1635,
+  serialized_start=1565,
+  serialized_end=1655,
 )
 
 
@@ -909,8 +916,8 @@ _COVERTTRANSACTIONSIGNATURE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1637,
-  serialized_end=1729,
+  serialized_start=1657,
+  serialized_end=1749,
 )
 
 
@@ -954,8 +961,8 @@ _FUSIONRESULT = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1731,
-  serialized_end=1803,
+  serialized_start=1751,
+  serialized_end=1823,
 )
 
 
@@ -992,8 +999,8 @@ _MYPROOFSLIST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1805,
-  serialized_end=1868,
+  serialized_start=1825,
+  serialized_end=1888,
 )
 
 
@@ -1037,8 +1044,8 @@ _THEIRPROOFSLIST_RELAYEDPROOF = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1944,
-  serialized_end=2032,
+  serialized_start=1964,
+  serialized_end=2052,
 )
 
 _THEIRPROOFSLIST = _descriptor.Descriptor(
@@ -1067,8 +1074,8 @@ _THEIRPROOFSLIST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1871,
-  serialized_end=2032,
+  serialized_start=1891,
+  serialized_end=2052,
 )
 
 
@@ -1129,8 +1136,8 @@ _BLAMES_BLAMEPROOF = _descriptor.Descriptor(
       name='decrypter', full_name='fusion.Blames.BlameProof.decrypter',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=2089,
-  serialized_end=2231,
+  serialized_start=2109,
+  serialized_end=2251,
 )
 
 _BLAMES = _descriptor.Descriptor(
@@ -1159,8 +1166,8 @@ _BLAMES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=2035,
-  serialized_end=2231,
+  serialized_start=2055,
+  serialized_end=2251,
 )
 
 
@@ -1190,8 +1197,8 @@ _RESTARTROUND = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=2233,
-  serialized_end=2264,
+  serialized_start=2253,
+  serialized_end=2284,
 )
 
 
@@ -1221,8 +1228,8 @@ _ERROR = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=2266,
-  serialized_end=2290,
+  serialized_start=2286,
+  serialized_end=2310,
 )
 
 
@@ -1245,8 +1252,8 @@ _PING = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=2292,
-  serialized_end=2298,
+  serialized_start=2312,
+  serialized_end=2318,
 )
 
 
@@ -1269,8 +1276,8 @@ _OK = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=2300,
-  serialized_end=2304,
+  serialized_start=2320,
+  serialized_end=2324,
 )
 
 
@@ -1331,8 +1338,8 @@ _CLIENTMESSAGE = _descriptor.Descriptor(
       name='msg', full_name='fusion.ClientMessage.msg',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=2307,
-  serialized_end=2539,
+  serialized_start=2327,
+  serialized_end=2559,
 )
 
 
@@ -1435,8 +1442,8 @@ _SERVERMESSAGE = _descriptor.Descriptor(
       name='msg', full_name='fusion.ServerMessage.msg',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=2542,
-  serialized_end=3094,
+  serialized_start=2562,
+  serialized_end=3114,
 )
 
 
@@ -1483,8 +1490,8 @@ _COVERTMESSAGE = _descriptor.Descriptor(
       name='msg', full_name='fusion.CovertMessage.msg',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=3097,
-  serialized_end=3252,
+  serialized_start=3117,
+  serialized_end=3272,
 )
 
 
@@ -1524,8 +1531,8 @@ _COVERTRESPONSE = _descriptor.Descriptor(
       name='msg', full_name='fusion.CovertResponse.msg',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=3254,
-  serialized_end=3335,
+  serialized_start=3274,
+  serialized_end=3355,
 )
 
 _COMPONENT.fields_by_name['input'].message_type = _INPUTCOMPONENT

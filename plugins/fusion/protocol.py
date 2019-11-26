@@ -11,7 +11,7 @@ from . import pedersen
 
 # this class doesn't get instantiated, it's just a bag of values.
 class Protocol:
-    VERSION = b'alpha6'
+    VERSION = b'alpha7'
     PEDERSEN = pedersen.PedersenSetup(b'\x02CashFusion gives us fungibility.')
 
     # The server only enforces dust limits, but clients should not make outputs
@@ -80,7 +80,7 @@ class Protocol:
     # twice this long to allow for other slow clients.
     STANDARD_TIMEOUT = 3.
     # How much extra time to allow for a peer to check blames (this may involve querying blockchain).
-    BLAME_VERIFY_TIME = 3.
+    BLAME_VERIFY_TIME = 5.
 
 
 del pedersen

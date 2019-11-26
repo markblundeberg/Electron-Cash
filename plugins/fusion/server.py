@@ -386,9 +386,13 @@ class FusionController(threading.Thread, PrintError):
     def run (self, ):
         self.print_error(f'Starting fusion with {len(self.clients)} players at tier={self.tier}')
         covert_server = CovertServer(self.bindhost, upnp = self.upnp)
+        covert_server.host_b = covert_server.host.encode('ascii')
         covert_server.start()
         try:
-            self.sendall(pb.FusionBegin(tier = self.tier))
+            self.sendall(pb.FusionBegin(tier = self.tier,
+                                        covert_domain = covert_server.host_b,
+                                        covert_port = covert_server.port,
+                                        covert_ssl = False))
 
             # repeatedly run rounds until successful or exception
             while True:
@@ -422,9 +426,6 @@ class FusionController(threading.Thread, PrintError):
         covert_priv, covert_Upub, covert_Cpub = gen_keypair()
         round_pubkey = covert_Cpub
 
-        covert_domain_b = covert_server.host.encode('ascii')
-        covert_port = covert_server.port
-
         # generate blind nonces (slow!)
         blindsigners = [[schnorr.BlindSigner() for _co in range(Params.num_components)] for _cl in self.clients]
 
@@ -439,8 +440,7 @@ class FusionController(threading.Thread, PrintError):
         def client_start(c, blinds):
             c.send(pb.StartRound(round_pubkey = round_pubkey,
                                  blind_nonce_points = [b.get_R() for b in blinds],
-                                 covert_domain = covert_domain_b,
-                                 covert_port = covert_port))
+                                 ))
             msg = c.recv('playercommit')
 
             commit_messages = check_playercommit(msg, Params.min_excess_fee, Params.max_excess_fee, Params.num_components)
@@ -561,7 +561,7 @@ class FusionController(threading.Thread, PrintError):
             self.sendall(pb.ShareCovertComponents(components = all_components, skip_signatures = True))
         else:
             self.print_error("starting covert signature acceptance")
-            session_hash = calc_session_hash(self.tier, covert_domain_b, covert_port, round_pubkey, all_commitments, all_components)
+            session_hash = calc_session_hash(self.tier, covert_server.host_b, covert_server.port, False, round_pubkey, all_commitments, all_components)
 
             tx, input_indices = tx_from_components(all_components, session_hash)
 

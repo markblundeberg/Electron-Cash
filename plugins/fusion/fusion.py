@@ -609,7 +609,11 @@ class Fusion(threading.Thread, PrintError):
             else:
                 self.status = ('waiting', tiers_string)
 
+        # msg is FusionBegin
         self.tier = msg.tier
+        self.covert_domain_b = msg.covert_domain
+        self.covert_port = msg.covert_port
+        self.covert_ssl = msg.covert_ssl
         out_amounts = tier_outputs[self.tier]
         out_addrs = self.target_wallet.reserve_change_addresses(len(out_amounts), temporary=True)
         self.reserved_addresses = out_addrs
@@ -630,18 +634,17 @@ class Fusion(threading.Thread, PrintError):
         self.print_error(f"round starting at {time.time()}")
 
         round_pubkey = msg.round_pubkey
-        covert_domain_b = msg.covert_domain
-        covert_port = msg.covert_port
+
         blind_nonce_points = msg.blind_nonce_points
         if len(blind_nonce_points) != self.num_components:
             raise FusionError('blind nonce miscount')
         try:
-            covert_domain = covert_domain_b.decode('ascii')
+            covert_domain = self.covert_domain_b.decode('ascii')
         except:
             raise FusionError('badly encoded covert domain')
 
         # launch the covert submitter
-        covert = CovertSubmitter(covert_domain, covert_port, False, self.tor_host, self.tor_port, self.num_components, Protocol.COVERT_SUBMIT_WINDOW, Protocol.COVERT_SUBMIT_TIMEOUT)
+        covert = CovertSubmitter(covert_domain, self.covert_port, self.covert_ssl, self.tor_host, self.tor_port, self.num_components, Protocol.COVERT_SUBMIT_WINDOW, Protocol.COVERT_SUBMIT_TIMEOUT)
         try:
             covert.schedule_connections(covert_T0 + Protocol.T_FIRST_CONNECT, covert_T0 + Protocol.T_LAST_CONNECT, 6, Protocol.COVERT_CONNECT_TIMEOUT)
 
@@ -738,7 +741,7 @@ class Fusion(threading.Thread, PrintError):
             # should have told equally to all the players. If the server tries to
             # sneakily spy on players by saying different things to them, then the
             # users will sign different transactions and the fusion will fail.
-            session_hash = calc_session_hash(self.tier, covert_domain_b, covert_port, round_pubkey, all_commitments, all_components)
+            session_hash = calc_session_hash(self.tier, self.covert_domain_b, self.covert_port, self.covert_ssl, round_pubkey, all_commitments, all_components)
             if msg.HasField('session_hash') and msg.session_hash != session_hash:
                 raise FusionError('Session hash mismatch (bug!)')
 
