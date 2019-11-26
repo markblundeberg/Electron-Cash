@@ -373,3 +373,23 @@ class CovertSubmitter(PrintError):
         finally:
             if covconn.connection:
                 covconn.connection.close()
+
+    def check_ok(self):
+        """ Make sure that an error hasn't occurred yet. """
+        e = self.failure_exception
+        if e is not None:
+            raise FusionError('Covert connections failed: {} {}'.format(type(e).__name__, e)) from e
+
+    def check_connected(self):
+        """ Make sure that condition is good, and all slots have an active connection. """
+        self.check_ok()
+        num_missing = sum(1 for s in self.slots if s.covconn.connection is None)
+        if num_missing > 0:
+            raise FusionError(f"Covert connections were too slow ({num_missing} incomplete out of {len(self.slots)}).")
+
+    def check_done(self):
+        """ Make sure that condition is good, and all slots have completed the work. """
+        self.check_ok()
+        num_missing = sum(1 for s in self.slots if not s.done)
+        if num_missing > 0:
+            raise FusionError(f"Covert submissions were too slow ({num_missing} incomplete out of {len(self.slots)}).")
