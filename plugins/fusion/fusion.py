@@ -187,7 +187,7 @@ def gen_components(num_blanks, inputs, outputs, feerate):
     assert num_blanks >= 0
 
     components = []
-    for (phash, pn), (pubkey, value) in inputs.items():
+    for (phash, pn), (pubkey, value) in inputs:
         fee = component_fee(size_of_input(pubkey), feerate)
         comp = pb.Component()
         comp.input.prev_txid = bytes.fromhex(phash)[::-1]
@@ -291,6 +291,7 @@ class Fusion(threading.Thread, PrintError):
 
         - keypairs: dict of {hex pubkey: bytes privkey}
         """
+        assert self.status[0] == 'setup'
         for hpub, priv in keypairs.items():
             assert isinstance(hpub, str)
             assert isinstance(priv, tuple) and len(priv) == 2
@@ -499,7 +500,11 @@ class Fusion(threading.Thread, PrintError):
             raise FusionError('excessive min excess fee from server')
 
     def allocate_outputs(self,):
+        assert self.status[0] in ('setup', 'connecting')
         num_inputs = len(self.coins)
+
+        # fix the input selection
+        self.inputs = tuple(self.coins.items())
 
         max_outputs = self.num_components - num_inputs
         if max_outputs < 1:
@@ -510,8 +515,8 @@ class Fusion(threading.Thread, PrintError):
         min_outputs = max(11 - num_inputs, 1)
 
         # how much input value do we bring to the table (after input & player fees)
-        sum_inputs_value = sum(v for p,v in self.coins.values())
-        input_fees = sum(component_fee(size_of_input(p), self.component_feerate) for p,a in self.coins.values())
+        sum_inputs_value = sum(v for (_,_), (p,v) in self.inputs)
+        input_fees = sum(component_fee(size_of_input(p), self.component_feerate) for (_,_), (p,v) in self.inputs)
         avail_for_outputs = (sum_inputs_value
                              - input_fees
                              - self.min_excess_fee)
@@ -675,8 +680,8 @@ class Fusion(threading.Thread, PrintError):
         try:
             covert.schedule_connections(covert_T0 + COVERT_T_FIRST_CONNECT, covert_T0 + COVERT_T_LAST_CONNECT, 6, COVERT_CONNECT_TIMEOUT)
 
-            num_blanks = self.num_components - len(self.coins) - len(self.outputs)
-            (mycommitments, mycomponenttypes, mycomponents, myproofs, privkeys), pedersen_amount, pedersen_nonce = gen_components(num_blanks, self.coins, self.outputs, self.component_feerate)
+            num_blanks = self.num_components - len(self.inputs) - len(self.outputs)
+            (mycommitments, mycomponenttypes, mycomponents, myproofs, privkeys), pedersen_amount, pedersen_nonce = gen_components(num_blanks, self.inputs, self.outputs, self.component_feerate)
 
             assert self.excess_fee == pedersen_amount # sanity check that we didn't mess up the above
             assert len(set(mycomponents)) == len(mycomponents) # no duplicates
@@ -835,12 +840,12 @@ class Fusion(threading.Thread, PrintError):
 
                     txid = tx.txid()
                     self.print_error(f"successful broadcast of {txid}")
-                    sum_in = sum(amt for pub, amt in self.coins.values())
+                    sum_in = sum(amt for (_, _), (pub, amt) in self.inputs)
                     sum_out = sum(amt for amt, addr in self.outputs)
                     sum_in_str = format_satoshis(sum_in, num_zeros=8)
                     fee_str = str(sum_in - sum_out)
                     feeloc = _('fee')
-                    label = f"CashFusion {len(self.coins)}⇢{len(self.outputs)}, {sum_in_str} BCH (−{fee_str} sats {feeloc})"
+                    label = f"CashFusion {len(self.inputs)}⇢{len(self.outputs)}, {sum_in_str} BCH (−{fee_str} sats {feeloc})"
                     wallets = set(self.source_wallet_info.keys())
                     wallets.add(self.target_wallet)
                     if len(wallets) > 1:
