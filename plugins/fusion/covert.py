@@ -177,7 +177,7 @@ class CovertSubmitter(PrintError):
         #  - There are N slots and M connections, N <= M in normal operation. Each slot has a connection, but some connections are spare.
         #  - Sending of data happens on a "slot". That way, related data (with same slot number) gets sent on the same connection whenever possible.
         #  - Each connection has its own random offset parameter, which it uses to offset its actions during each covert phase.
-        #    In other words, each channel leaks minimal information about the actual timeframe, provided the timeframes are equal in length.
+        #    In other words, each channel leaks minimal information about the actual timeframe it belongs to, even after many actions.
         #  - When a connection dies / times out and it was assigned to a slot, it immediately reassigns the slot to another connection.
         #    If reassignment is not possible, then the entire covert submission mechanism stops itself.
 

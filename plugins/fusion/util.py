@@ -6,18 +6,12 @@ from electroncash.transaction import Transaction, TYPE_SCRIPT, TYPE_ADDRESS, get
 from electroncash.address import Address, ScriptOutput, hash160, OpCodes
 
 from . import fusion_pb2 as pb
-from . import pedersen
 
 from google.protobuf.message import DecodeError
 
 import secrets
 import hashlib
 import ecdsa
-
-PROTOCOL_VERSION = b'alpha5'
-
-PedersenFusion = pedersen.PedersenSetup(b'\x02CashFusion gives us fungibility.')
-
 
 # Internally used exceptions, shouldn't leak out of this plugin.
 class FusionError(Exception):
