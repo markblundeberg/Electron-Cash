@@ -793,18 +793,7 @@ class Fusion(threading.Thread, PrintError):
                     assert tx.is_complete()
                     txhex = tx.serialize()
 
-                    try:
-                        self.network.broadcast_transaction2(tx,)
-                    except ServerErrorResponse as e:
-                        nice_msg, = e.args
-                        server_msg = e.server_msg
-                        if r"txn-already-in-mempool" not in server_msg and r"txn-already-known" not in server_msg and r"transaction already in block chain" not in server_msg:
-                            server_msg = server_msg.replace(txhex, "<...tx hex...>")
-                            self.print_error("tx broadcast failed:", repr(server_msg))
-                            raise FusionError(f"could not broadcast the transaction! {nice_msg}")
-
                     txid = tx.txid()
-                    self.print_error(f"successful broadcast of {txid}")
                     sum_in = sum(amt for (_, _), (pub, amt) in self.inputs)
                     sum_out = sum(amt for amt, addr in self.outputs)
                     sum_in_str = format_satoshis(sum_in, num_zeros=8)
@@ -826,6 +815,17 @@ class Fusion(threading.Thread, PrintError):
 
                     self.txid = txid
 
+                    try:
+                        self.network.broadcast_transaction2(tx,)
+                    except ServerErrorResponse as e:
+                        nice_msg, = e.args
+                        server_msg = e.server_msg
+                        if r"txn-already-in-mempool" not in server_msg and r"txn-already-known" not in server_msg and r"transaction already in block chain" not in server_msg:
+                            server_msg = server_msg.replace(txhex, "<...tx hex...>")
+                            self.print_error("tx broadcast failed:", repr(server_msg))
+                            raise FusionError(f"could not broadcast the transaction! {nice_msg}")
+
+                    self.print_error(f"successful broadcast of {txid}")
                     return True
                 else:
                     bad_components = set(msg.bad_components)
