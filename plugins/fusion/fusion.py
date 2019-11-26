@@ -177,7 +177,7 @@ def gen_components(num_blanks, inputs, outputs, feerate):
 
     Returns:
         list of InitialCommitment,
-        list of component types ('i', 'o', or 'b'),
+        list of component original indices (inputs then outputs then blanks),
         list of serialized Component,
         list of Proof,
         list of communication privkey,
@@ -194,23 +194,23 @@ def gen_components(num_blanks, inputs, outputs, feerate):
         comp.input.prev_index = pn
         comp.input.pubkey = pubkey
         comp.input.amount = value
-        components.append((comp, +value-fee, 'i'))
+        components.append((comp, +value-fee))
     for value, addr in outputs:
         script = addr.to_script()
         fee = component_fee(size_of_output(script), feerate)
         comp = pb.Component()
         comp.output.scriptpubkey = script
         comp.output.amount = value
-        components.append((comp, -value-fee, 'o'))
+        components.append((comp, -value-fee))
     for _ in range(num_blanks):
         comp = pb.Component(blank={})
-        components.append((comp, 0, 'b'))
+        components.append((comp, 0))
 
     # Generate commitments and (partial) proofs
     resultlist = []
     sum_nonce = 0
     sum_amounts = 0
-    for comp, commitamount, ctype in components:
+    for cnum, (comp, commitamount) in enumerate(components):
         salt = secrets.token_bytes(32)
         comp.salt_commitment = sha256(salt)
         compser = comp.SerializeToString()
@@ -233,7 +233,7 @@ def gen_components(num_blanks, inputs, outputs, feerate):
         proof.salt = salt
         proof.pedersen_nonce = pedersencommitment.nonce.to_bytes(32, 'big')
 
-        resultlist.append((commitser, ctype, compser, proof, privkey))
+        resultlist.append((commitser, cnum, compser, proof, privkey))
 
     # Sort by the commitment bytestring, in order to forget the original order.
     resultlist.sort(key=lambda x:x[0])
@@ -681,7 +681,7 @@ class Fusion(threading.Thread, PrintError):
             covert.schedule_connections(covert_T0 + COVERT_T_FIRST_CONNECT, covert_T0 + COVERT_T_LAST_CONNECT, 6, COVERT_CONNECT_TIMEOUT)
 
             num_blanks = self.num_components - len(self.inputs) - len(self.outputs)
-            (mycommitments, mycomponenttypes, mycomponents, myproofs, privkeys), pedersen_amount, pedersen_nonce = gen_components(num_blanks, self.inputs, self.outputs, self.component_feerate)
+            (mycommitments, mycomponentslots, mycomponents, myproofs, privkeys), pedersen_amount, pedersen_nonce = gen_components(num_blanks, self.inputs, self.outputs, self.component_feerate)
 
             assert self.excess_fee == pedersen_amount # sanity check that we didn't mess up the above
             assert len(set(mycomponents)) == len(mycomponents) # no duplicates
@@ -725,9 +725,9 @@ class Fusion(threading.Thread, PrintError):
             covert.set_stop_time(covert_T0 + COVERT_T_START_CLOSE)
 
             # Schedule covert submissions.
-            for i, (comp, ctype, sig) in enumerate(zip(mycomponents, mycomponenttypes, blindsigs)):
+            for i, (comp, sig) in enumerate(zip(mycomponents, blindsigs)):
                 msg = pb.CovertComponent(round_pubkey = round_pubkey, signature = sig, component = comp)
-                covert.schedule_submit(i, covert_T0 + COVERT_T_START_COMPS,  msg)
+                covert.schedule_submit(mycomponentslots[i], covert_T0 + COVERT_T_START_COMPS,  msg)
 
             remtime = COVERT_T_START_SIGS - covert_clock()
             assert remtime > 0, "times misconfigured"
@@ -805,7 +805,7 @@ class Fusion(threading.Thread, PrintError):
 
                     msg = pb.CovertTransactionSignature(txsignature = sig, which_input = i)
 
-                    covert.schedule_submit(mycompidx, covert_T0 + COVERT_T_START_SIGS, msg)
+                    covert.schedule_submit(mycomponentslots[mycompidx], covert_T0 + COVERT_T_START_SIGS, msg)
 
                 remtime = COVERT_T_EXPECTING_CONCLUSION - covert_clock()
                 assert remtime > 0, "times misconfigured"
