@@ -677,10 +677,7 @@ class Fusion(threading.Thread, PrintError):
             # sleep until the covert component phase really starts, to catch covert connection failures.
             time.sleep(remtime)
 
-            if covert.failure_exception is not None:
-                e = covert.failure_exception
-                raise FusionError('Covert connections failed: {} {}'.format(type(e).__name__, e)) from e
-
+            covert.check_connected()
 
             ### Start covert component submissions
             self.print_error("starting covert component submission")
@@ -722,9 +719,7 @@ class Fusion(threading.Thread, PrintError):
             if covert_clock() > Protocol.T_START_SIGS:
                 raise FusionError('Shared components message arrived too slowly.')
 
-            if covert.failure_exception is not None:
-                e = covert.failure_exception
-                raise FusionError('Covert connections failed: {} {}'.format(type(e).__name__, e)) from e
+            covert.check_done()
 
             # Find my components
             try:
@@ -776,9 +771,7 @@ class Fusion(threading.Thread, PrintError):
                 if covert_clock() > Protocol.T_EXPECTING_CONCLUSION:
                     raise FusionError('Fusion result message arrived too slowly.')
 
-                if covert.failure_exception is not None:
-                    e = covert.failure_exception
-                    raise FusionError('Covert connections failed: {} {}'.format(type(e).__name__, e)) from e
+                covert.check_done()
 
                 if msg.ok:
                     allsigs = msg.txsignatures
