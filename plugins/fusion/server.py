@@ -51,6 +51,9 @@ class Params:
     # But don't start a fusion if it has only been above min_clients for a short time (unless pool is full).
     start_time_min = 120
 
+    # whether to print a lot of logs
+    noisy = False
+
 
 # How long covert connections are allowed to stay open without activity.
 # note this needs to consider the maximum interval between messages:
@@ -387,6 +390,7 @@ class FusionController(threading.Thread, PrintError):
         self.print_error(f'Starting fusion with {len(self.clients)} players at tier={self.tier}')
         covert_server = CovertServer(self.bindhost, upnp = self.upnp)
         covert_server.host_b = covert_server.host.encode('ascii')
+        covert_server.noisy = Params.noisy
         covert_server.start()
         try:
             self.begin_time = round(time.time())

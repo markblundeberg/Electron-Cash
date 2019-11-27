@@ -83,6 +83,7 @@ class ClientHandlerThread(threading.Thread, PrintError):
     In case of ValidationError during a job, this will call `send_error` before
     closing the connection. You can implement this in subclasses.
     """
+    noisy = True
     class Disconnect(Exception):
         pass
 
@@ -114,7 +115,8 @@ class ClientHandlerThread(threading.Thread, PrintError):
         except self.Disconnect:
             pass
         except FusionError as exc:
-            self.print_error('failed: {}'.format(exc))
+            if self.noisy:
+                self.print_error('failed: {}'.format(exc))
         except Exception:
             self.print_error('failed with exception')
             traceback.print_exc(file=sys.stderr)
@@ -153,6 +155,7 @@ class ClientHandlerThread(threading.Thread, PrintError):
 
 class GenericServer(threading.Thread, PrintError):
     client_default_timeout = 5
+    noisy = True
 
     def diagnostic_name(self):
         return f'{type(self).__name__}({self.host}:{self.port})'
@@ -239,9 +242,11 @@ class GenericServer(threading.Thread, PrintError):
                     if self.stopping:
                         sock.close()
                         break
-                    self.print_error(f'new client: {sock.getpeername()[0]}')
+                    if self.noisy:
+                        self.print_error(f'new client: {sock.getpeername()[0]}')
                     connection = Connection(sock, self.client_default_timeout)
                     client = self.clientclass(connection)
+                    client.noisy = self.noisy
                     self.spawned_clients.add(client)
                     client.addjob(self.new_client_job)
                     client.start()
