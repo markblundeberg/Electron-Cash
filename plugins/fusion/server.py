@@ -664,123 +664,118 @@ class FusionController(threading.Thread, PrintError):
         for i, (commit, ci, cj) in enumerate(commitment_master_list):
             client_commit_indexes[ci][cj] = i
 
-        players_proven = set()
+        collector = ResultsCollector(len(self.clients), done_on_fail = False)
+        def client_get_proofs(client, collector):
+            with collector:
+                msg = client.recv('myproofslist')
+                seed = msg.random_number
+                if sha256(seed) != client.random_number_commitment:
+                    client.error("seed did not match commitment")
+                proofs = msg.encrypted_proofs
+                if len(proofs) != Params.num_components:
+                    client.error("wrong number of proofs")
+                if any(len(p) > 200 for p in proofs):
+                    client.error("too-long proof")  # they should only be 129 bytes long.
+
+                # generate the possible destinations list (all commitments, but leaving out the originating client's commitments).
+                myindex = self.clients.index(client)
+                possible_commitment_destinations = [(ci,cj) for commit, ci, cj in commitment_master_list if ci != myindex]
+                N = len(possible_commitment_destinations)
+                assert N == len(all_commitments) - Params.num_components
+
+                # calculate the randomly chosen destinations, same way as client did.
+                relays = []
+                for i, proof in enumerate(proofs):
+                    dest_client_idx, dest_key_idx = possible_commitment_destinations[rand_position(seed, N, i)]
+                    src_commitment_idx = client_commit_indexes[myindex][i]
+                    relays.append((proof, src_commitment_idx, dest_client_idx, dest_key_idx))
+                if not collector.add((client, relays)):
+                    client.error("late proofs")
+        for client in self.clients:
+            client.addjob(client_get_proofs, collector)
+        results = collector.gather(deadline = time.monotonic() + Protocol.STANDARD_TIMEOUT)
+
+        # Now, repackage the proofs according to destination.
         proofs_to_relay = [list() for _ in self.clients]
-        def client_get_proofs(client):
-            msg = client.recv('myproofslist')
-            seed = msg.random_number
-            if sha256(seed) != client.random_number_commitment:
-                client.error("seed did not match commitment")
-            proofs = msg.encrypted_proofs
-            if len(proofs) != Params.num_components:
-                client.error("wrong number of proofs")
-            if any(len(p) > 200 for p in proofs):
-                client.error("too-long proof")  # they should only be 129 bytes long.
+        for src_client, relays in results:
+            for proof, src_commitment_idx, dest_client_idx, dest_key_idx in relays:
+                proofs_to_relay[dest_client_idx].append((proof, src_commitment_idx, dest_key_idx, src_client))
 
-            # generate the possible destinations list (all commitments, but leaving out the originating client's commitments).
-            myindex = self.clients.index(client)
-            possible_commitment_destinations = [(ci,cj) for commit, ci, cj in commitment_master_list if ci != myindex]
-            N = len(possible_commitment_destinations)
-            assert N == len(all_commitments) - Params.num_components
+        live_clients = len(results)
+        collector = ResultsCollector(live_clients, done_on_fail = False)
+        def client_get_blames(client, myindex, proofs, collector):
+            with collector:
+                # an in-place sort by source commitment idx removes ordering correlations about which client sent which proof
+                proofs.sort(key = lambda x:x[1])
+                client.send(pb.TheirProofsList(proofs = [
+                                    dict(encrypted_proof=x, src_commitment_idx=y, dst_key_idx=z)
+                                    for x,y,z, _ in proofs]))
+                msg = client.recv('blames', timeout = Protocol.STANDARD_TIMEOUT + Protocol.BLAME_VERIFY_TIME)
 
-            # calculate the randomly chosen destinations, same way as client did.
-            for i, proof in enumerate(proofs):
-                dest_client_idx, dest_key_idx = possible_commitment_destinations[rand_position(seed, N, i)]
-                src_commitment_idx = client_commit_indexes[myindex][i]
-                proofs_to_relay[dest_client_idx].append((proof, src_commitment_idx, dest_key_idx))
-            players_proven.add(client)
-            ping.set()
-        for client in self.clients:
-            client.addjob(client_get_proofs)
+                # More than one blame per proof is malicious. Boot client
+                # immediately since client may be trying to DoS us by
+                # making us check many inputs against blockchain.
+                if len(msg.blames) > len(proofs):
+                    client.error('too many blames')
+                if len(set(blame.which_proof for blame in msg.blames)) != len(msg.blames):
+                    client.error('multiple blames point to same proof')
 
-        deadline = time.monotonic() + Protocol.STANDARD_TIMEOUT
-        # Wait for players to respond with proofs.
-        while True:
-            good_players = set(players_proven)
-            if len(good_players) == len(self.clients):
-                break
-            remtime = deadline - time.monotonic()
-            if remtime < 0:
-                self.kick_missing_clients(good_players, 'late proof')
-                self.sendall(pb.RestartRound(message = 'late proof'))
-                return
-            ping.wait(remtime)
-            ping.clear()
+                # Note, the rest of this function might run for a while if many
+                # checks against blockchain need to be done, perhaps even still
+                # running after run_round has exited. For this reason we try to
+                # not reference self.<variables> that may change.
+                for blame in msg.blames:
+                    try:
+                        encproof, src_commitment_idx, dest_key_idx, src_client = proofs[blame.which_proof]
+                    except IndexError:
+                        client.kill(f'bad proof index {blame.which_proof} / {len(proofs)}')
+                        continue
+                    src_commit_blob, src_commit_client_idx, _ = commitment_master_list[src_commitment_idx]
+                    dest_commit_blob = all_commitments[client_commit_indexes[myindex][dest_key_idx]]
 
-        # Now, resend the proofs
-        for client, proofs in zip(self.clients, proofs_to_relay):
-            proofs.sort(key = lambda x:x[1]) # in-place sort by source commitment idx
-            msg = pb.TheirProofsList(proofs = [
-                                dict(encrypted_proof=x, src_commitment_idx=y, dst_key_idx=z)
-                                for x,y,z in proofs])
-            client.addjob(clientjob_send, msg)
+                    try:
+                        ret = validate_blame(blame, encproof, src_commit_blob, dest_commit_blob, all_components, bad_components, Params.component_feerate)
+                    except ValidationError as e:
+                        self.print_error("got bad blame; clamed reason was: "+repr(blame.blame_reason))
+                        client.kill(f'bad blame message: {e} (you claimed: {blame.blame_reason!r})')
+                        continue
 
-        checktime = Protocol.STANDARD_TIMEOUT + Protocol.BLAME_VERIFY_TIME
+                    if isinstance(ret, str):
+                        self.print_error(f"verified a bad proof (for {src_commitment_idx}): {ret}")
+                        src_client.kill(f'bad proof (for {src_commitment_idx}): {ret}')
+                        continue
 
-        bad_client_idxes = dict()
-        clients_got_blame = set()
-        def client_get_blames(client):
-            myindex = self.clients.index(client)
-            msg = client.recv('blames', timeout = checktime)
-            for blame in msg.blames:
-                try:
-                    encproof, src_commitment_idx, dest_key_idx = proofs_to_relay[myindex][blame.which_proof]
-                except IndexError:
-                    client.error('bad proof index')
-                src_commit_blob, src_commit_client_idx, _ = commitment_master_list[src_commitment_idx]
-                dest_commit_blob = all_commitments[client_commit_indexes[myindex][dest_key_idx]]
+                    if src_client.dead:
+                        # If the blamed client is already dead, don't waste more time.
+                        # Since nothing after this point can report back to the
+                        # verifier, there is no privacy leak by the ommission.
+                        continue
 
-                try:
-                    ret = validate_blame(blame, encproof, src_commit_blob, dest_commit_blob, all_components, bad_components, Params.component_feerate)
-                except ValidationError:
-                    self.print_error("got bad blame; clamed reason was: "+repr(blame.blame_reason))
-                    bad_client_idxes[myindex] = 'bad blame message'
-                    continue
+                    assert ret, 'expecting input component'
+                    outpoint = ret.prev_txid[::-1].hex() + ':' + str(ret.prev_index)
+                    try:
+                        inputchecked = check_input_electrumx(self.network, ret)
+                    except ValidationError as e:
+                        reason = f'{e.args[0]} ({outpoint})'
+                        self.print_error(f"blaming[{src_commitment_idx}] for bad input: {reason}")
+                        src_client.kill('you provided a bad input: ' + reason)
+                        continue
+                    if inputchecked:
+                        self.print_error(f"player indicated bad input but it was fine ({outpoint})")
+                        # At this point we could blame the originator, however
+                        # blockchain checks are somewhat subjective. It would be
+                        # appropriate to add some 'ban score' to the player.
+                    else:
+                        self.print_error(f"player indicated bad input but checking failed ({outpoint})")
 
-                if isinstance(ret, str):
-                    self.print_error(f"verified a bad proof [{src_commitment_idx}]: {ret}")
-                    bad_client_idxes[src_commit_client_idx] = 'bad proof'
-                    continue
+                # we aren't collecting any results, rather just marking that
+                # 'checking finished' so that if all blames are checked, we
+                # can start next round right away.
+                collector.add(None)
 
-                assert ret, 'expecting input component'
-                outpoint = ret.prev_txid[::-1].hex() + ':' + str(ret.prev_index)
-                try:
-                    inputchecked = check_input_electrumx(self.network, ret)
-                except ValidationError as e:
-                    reason = f'bad input: {e.args[0]} ({outpoint})'
-                    self.print_error(f"blaming[{src_commitment_idx}]: {reason}")
-                    bad_client_idxes[src_commit_client_idx] = reason
-                    continue
-                if inputchecked:
-                    self.print_error(f"player indicated bad input but it was fine ({outpoint})")
-                    # At this point we could blame the originator, however
-                    # blockchain checks are somewhat subjective. It would be
-                    # appropriate to add some 'ban score' to the player.
-                else:
-                    self.print_error(f"player indicated bad input but checking failed ({outpoint})")
-
-            clients_got_blame.add(client)
-            ping.set()
-        for client in self.clients:
-            client.addjob(client_get_blames)
-
-        deadline = time.monotonic() + checktime
-        # Wait for players to respond with proofs.
-        while True:
-            good_players = set(clients_got_blame)
-            if len(good_players) == len(self.clients):
-                break
-            remtime = deadline - time.monotonic()
-            if remtime < 0:
-                self.kick_missing_clients(good_players, 'late blame')
-                self.sendall(pb.RestartRound(message = 'late blame'))
-                return
-            ping.wait(remtime)
-            ping.clear()
-
-        for i, reason in bad_client_idxes.items():
-            self.clients[i].kill("you were blamed for the failure: "+reason)
-        self.print_error(f"{len(bad_client_idxes)} players blamed")
+        for idx, (client, proofs) in enumerate(zip(self.clients, proofs_to_relay)):
+            client.addjob(client_get_blames, idx, proofs, collector)
+        _ = collector.gather(deadline = time.monotonic() + Protocol.STANDARD_TIMEOUT + Protocol.BLAME_VERIFY_TIME * 2)
 
         self.sendall(pb.RestartRound(message = 'round finished'))
 
