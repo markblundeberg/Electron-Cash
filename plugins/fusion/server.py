@@ -68,10 +68,10 @@ rng.seed(secrets.token_bytes(32))
 
 def clientjob_send(client, msg, timeout = Protocol.STANDARD_TIMEOUT):
     client.send(msg, timeout=timeout)
-def clientjob_goodbye(client, text, timeout = Protocol.STANDARD_TIMEOUT):
+def clientjob_goodbye(client, text):
     # a gentler goodbye than killing
     if text is not None:
-        client.send_error(text, timeout=timeout)
+        client.send_error(text)
     raise client.Disconnect
 
 class ClientThread(ClientHandlerThread):
@@ -418,11 +418,11 @@ class FusionController(threading.Thread, PrintError):
             self.print_error('Failed with exception!')
             traceback.print_exc(file=sys.stderr)
             for c in self.clients:
-                c.addjob(clientjob_goodbye, 'internal server error', None)
+                c.addjob(clientjob_goodbye, 'internal server error')
         finally:
             covert_server.stop()
         for c in self.clients:
-            c.addjob(clientjob_goodbye, None, None)
+            c.addjob(clientjob_goodbye, None)
         self.clients = [] # gc
 
     def kick_missing_clients(self, goodclients, reason = None):
