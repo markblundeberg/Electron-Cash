@@ -473,7 +473,8 @@ class FusionController(threading.Thread, PrintError):
         covert_server.start_components(round_pubkey, Params.component_feerate)
 
         # generate blind nonces (slow!)
-        blindsigners = [[schnorr.BlindSigner() for _co in range(Params.num_components)] for _cl in self.clients]
+        for c in self.clients:
+            c.blinds = [schnorr.BlindSigner() for _co in range(Params.num_components)]
 
         lock = threading.Lock()
         seen_salthashes = set()
@@ -481,10 +482,10 @@ class FusionController(threading.Thread, PrintError):
         # Send start message to players; record the time we did this
 
         collector = ResultsCollector(len(self.clients), done_on_fail = False)
-        def client_start(c, blinds):
+        def client_start(c, collector):
             with collector:
                 c.send(pb.StartRound(round_pubkey = round_pubkey,
-                                     blind_nonce_points = [b.get_R() for b in blinds],
+                                     blind_nonce_points = [b.get_R() for b in c.blinds],
                                      ))
                 msg = c.recv('playercommit')
 
@@ -501,14 +502,15 @@ class FusionController(threading.Thread, PrintError):
                     c.error("late commitment")
 
             # reply with blind signatures immediately
-            scalars = [b.sign(covert_priv, e) for b,e in zip(blinds, msg.blind_sig_requests)]
+            scalars = [b.sign(covert_priv, e) for b,e in zip(c.blinds, msg.blind_sig_requests)]
+            del c.blinds
             c.send(pb.BlindSigResponses(scalars = scalars))
 
-            # record some things for later
+            # record for later
             c.random_number_commitment = msg.random_number_commitment
 
-        for client, blinds in zip(self.clients, blindsigners):
-            client.addjob(client_start, blinds)
+        for client in self.clients:
+            client.addjob(client_start, collector)
 
         # Record the time that we sent 'startround' message to players; this
         # will form the basis of our covert timeline.
@@ -530,7 +532,7 @@ class FusionController(threading.Thread, PrintError):
         rng.shuffle(commitment_master_list)
         all_commitments = tuple(commit for commit,ci,cj in commitment_master_list)
 
-        del blindsigners, results
+        del results, collector
 
         # Upload the full commitment list; we're a bit generous with the timeout but that's OK.
         self.sendall(pb.AllCommitments(initial_commitments = all_commitments),
