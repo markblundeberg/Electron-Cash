@@ -253,7 +253,6 @@ class FusionServer(GenericServer):
 
     def new_client_job(self, client):
         client_ip = client.connection.socket.getpeername()[0]
-        self.print_error("Client joining")
 
         msg = client.recv('clienthello')
         if msg.version != Protocol.VERSION:
@@ -365,6 +364,42 @@ class FusionServer(GenericServer):
                     self.reset_timer()
             raise
 
+class ResultsCollector:
+    # Collect submissions from different sources, with a deadline.
+    def __init__(self, num_results, done_on_fail = True):
+        self.num_results = int(num_results)
+        self.done_on_fail = bool(done_on_fail)
+        self.done_ev = threading.Event()
+        self.lock = threading.Lock()
+        self.results = []
+        self.fails = []
+    def __enter__(self, ):
+        return self
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            self.fails.append(exc_value)
+            if self.done_on_fail:
+                self.done_ev.set()
+            elif len(self.fails) + len(getattr(self, 'results', ())) >= self.num_results:
+                self.done_ev.set()
+    def gather(self, *, deadline):
+        remtime = deadline - time.monotonic()
+        self.done_ev.wait(max(0., remtime))
+        with self.lock:
+            ret = self.results
+            del self.results
+            return ret
+    def add(self, result):
+        with self.lock:
+            try:
+                self.results.append(result)
+            except AttributeError:
+                return False
+            else:
+                if len(self.fails) + len(self.results) >= self.num_results:
+                    self.done_ev.set()
+                return True
+
 class FusionController(threading.Thread, PrintError):
     """ This controls the Fusion rounds running from server side. """
     def __init__(self, network, tier, clients, bindhost, upnp = None):
@@ -434,32 +469,43 @@ class FusionController(threading.Thread, PrintError):
         covert_priv, covert_Upub, covert_Cpub = gen_keypair()
         round_pubkey = covert_Cpub
 
+        # start to accept covert components
+        covert_server.start_components(round_pubkey, Params.component_feerate)
+
         # generate blind nonces (slow!)
         blindsigners = [[schnorr.BlindSigner() for _co in range(Params.num_components)] for _cl in self.clients]
 
-        player_commitments = {}
-        player_blindsig_gens = {}
-        player_salthashes = list()
-        player_excess_fees = list()
-
-        ping = threading.Event()
+        lock = threading.Lock()
+        seen_salthashes = set()
 
         # Send start message to players; record the time we did this
+
+        collector = ResultsCollector(len(self.clients), done_on_fail = False)
         def client_start(c, blinds):
-            c.send(pb.StartRound(round_pubkey = round_pubkey,
-                                 blind_nonce_points = [b.get_R() for b in blinds],
-                                 ))
-            msg = c.recv('playercommit')
+            with collector:
+                c.send(pb.StartRound(round_pubkey = round_pubkey,
+                                     blind_nonce_points = [b.get_R() for b in blinds],
+                                     ))
+                msg = c.recv('playercommit')
 
-            commit_messages = check_playercommit(msg, Params.min_excess_fee, Params.max_excess_fee, Params.num_components)
+                commit_messages = check_playercommit(msg, Params.min_excess_fee, Params.max_excess_fee, Params.num_components)
 
-            # Save a variety of things we need for later
+                newhashes = set(m.salted_component_hash for m in commit_messages)
+                with lock:
+                    expected_len = len(seen_salthashes) + len(newhashes)
+                    seen_salthashes.update(newhashes)
+                    if len(seen_salthashes) != expected_len:
+                        c.error('duplicate component commitment')
+
+                if not collector.add((c, msg.initial_commitments, msg.excess_fee)):
+                    c.error("late commitment")
+
+            # reply with blind signatures immediately
+            scalars = [b.sign(covert_priv, e) for b,e in zip(blinds, msg.blind_sig_requests)]
+            c.send(pb.BlindSigResponses(scalars = scalars))
+
+            # record some things for later
             c.random_number_commitment = msg.random_number_commitment
-            player_blindsig_gens[c] = (b.sign(covert_priv, e) for b,e in zip(blinds, msg.blind_sig_requests))
-            player_commitments[c] = tuple(msg.initial_commitments)
-            player_salthashes.extend([(c, m.salted_component_hash) for m in commit_messages])
-            player_excess_fees.append(msg.excess_fee)
-            ping.set()
 
         for client, blinds in zip(self.clients, blindsigners):
             client.addjob(client_start, blinds)
@@ -467,59 +513,24 @@ class FusionController(threading.Thread, PrintError):
         # Record the time that we sent 'startround' message to players; this
         # will form the basis of our covert timeline.
         covert_T0 = time.monotonic()
-        self.print_error(f"startround sent at {time.time()}")
+        self.print_error(f"startround sent at {time.time()}; accepting covert components")
 
+        # Await commitment messages then process results
+        results = collector.gather(deadline = covert_T0 + Protocol.TS_EXPECTING_COMMITMENTS)
 
-        # Wait for players to respond with commitments.
-        while True:
-            good_players = set(player_commitments.keys())
-            if len(good_players) == len(self.clients):
-                break
-            remtime = covert_T0 + Protocol.TS_EXPECTING_COMMITMENTS - time.monotonic()
-            if remtime < 0:
-                self.kick_missing_clients(good_players, 'late commitment')
-                self.sendall(pb.RestartRound(message = 'late commitment'))
-                return
-            ping.wait(remtime)
-            ping.clear()
+        # Filter clients who didn't manage to give a good commitment.
+        prev_client_count = len(self.clients)
+        self.clients = [c for c, _, _ in results]
+        self.check_client_count()
+        self.print_error(f"got commitments from {len(self.clients)} clients (dropped {prev_client_count - len(self.clients)})")
 
-        # We've received commitments from all clients, but we must exclude duplicate salted hashes.
-        hash_owners = defaultdict(list)
-        bad_clients = set()
-        for c, h in player_salthashes:
-            hash_owners[h].append(c)
-        for h, clients in hash_owners.items():
-            if len(clients) != 1:
-                # This hash was submitted more than once!
-                bad_clients.update(clients)
-
-        if bad_clients:
-            for c in clients:
-                c.kill('duplicate component commitments')
-            self.sendall(pb.RestartRound(message = 'duplicate component commitments'))
-            return
-
-        # At this point, all clients are presumably still good as we haven't restarted.
-
+        total_excess_fees = sum(f for _,_,f in results)
         # Generate scrambled commitment list, but remember exactly where each commitment originated.
-        commitment_master_list = [(commit, ci, cj) for ci, client in enumerate(self.clients) for cj,commit in enumerate(player_commitments[client])]
+        commitment_master_list = [(commit, ci, cj) for ci, (_, commitments, _) in enumerate(results) for cj,commit in enumerate(commitments)]
         rng.shuffle(commitment_master_list)
         all_commitments = tuple(commit for commit,ci,cj in commitment_master_list)
 
-        total_excess_fees = sum(player_excess_fees)
-
-        ###
-        self.print_error("starting covert component acceptance")
-
-        # put up job to accept covert components
-        covert_server.start_components(round_pubkey, Params.component_feerate)
-
-        # complete the signature requests (this is fast) and upload them.
-        for c, sig_gen in player_blindsig_gens.items():
-            c.addjob(clientjob_send, pb.BlindSigResponses(scalars = list(sig_gen)))
-
-        # do some cleanup
-        del blindsigners, player_blindsig_gens, player_commitments, player_salthashes, player_excess_fees, hash_owners
+        del blindsigners, results
 
         # Upload the full commitment list; we're a bit generous with the timeout but that's OK.
         self.sendall(pb.AllCommitments(initial_commitments = all_commitments),
@@ -527,14 +538,10 @@ class FusionController(threading.Thread, PrintError):
 
         # Sleep until end of covert components phase
         remtime = covert_T0 + Protocol.TS_EXPECTING_COVERT_COMPONENTS - time.monotonic()
-        if remtime < 0:
-            # really shouldn't happen, we had plenty of time
-            raise FusionError("way too slow")
+        assert remtime > 0, "timings set up incorrectly"
         time.sleep(remtime)
 
         component_master_list = list(covert_server.end_components().items())
-
-        ###
         self.print_error(f"ending covert component acceptance. {len(component_master_list)} received.")
 
         # Shuffle the components & contribs list, then separate it out.
