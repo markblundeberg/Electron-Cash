@@ -389,10 +389,14 @@ class FusionController(threading.Thread, PrintError):
         covert_server.host_b = covert_server.host.encode('ascii')
         covert_server.start()
         try:
+            self.begin_time = round(time.time())
             self.sendall(pb.FusionBegin(tier = self.tier,
                                         covert_domain = covert_server.host_b,
                                         covert_port = covert_server.port,
-                                        covert_ssl = False))
+                                        covert_ssl = False,
+                                        server_time = self.begin_time))
+
+            time.sleep(Protocol.WARMUP_TIME)
 
             # repeatedly run rounds until successful or exception
             while True:
@@ -561,7 +565,7 @@ class FusionController(threading.Thread, PrintError):
             self.sendall(pb.ShareCovertComponents(components = all_components, skip_signatures = True))
         else:
             self.print_error("starting covert signature acceptance")
-            session_hash = calc_session_hash(self.tier, covert_server.host_b, covert_server.port, False, round_pubkey, all_commitments, all_components)
+            session_hash = calc_session_hash(self.tier, covert_server.host_b, covert_server.port, False, self.begin_time, round_pubkey, all_commitments, all_components)
 
             tx, input_indices = tx_from_components(all_components, session_hash)
 

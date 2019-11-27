@@ -69,13 +69,14 @@ def listhash(iterable):
         h.update(x)
     return h.digest()
 
-def calc_session_hash(tier, covert_domain_b, covert_port, covert_ssl, round_pubkey, all_commitments, all_components):
+def calc_session_hash(tier, covert_domain_b, covert_port, covert_ssl, begin_time, round_pubkey, all_commitments, all_components):
     return listhash([b'Cash Fusion Session',
                      Protocol.VERSION,
                      tier.to_bytes(8,'big'),
                      covert_domain_b,
                      covert_port.to_bytes(4,'big'),
                      b'\x01' if covert_ssl else b'\0',
+                     begin_time.to_bytes(8,'big'),
                      round_pubkey,
                      listhash(all_commitments),
                      listhash(all_components),
