@@ -631,6 +631,7 @@ class Fusion(threading.Thread, PrintError):
         out_addrs = self.target_wallet.reserve_change_addresses(len(out_amounts), temporary=True)
         self.reserved_addresses = out_addrs
         self.outputs = list(zip(out_amounts, out_addrs))
+        self.print_error(f"starting fusion rounds at tier {self.tier}: {len(self.inputs)} inputs and {len(self.outputs)} outputs")
 
     def start_covert(self, ):
         self.status = ('running', 'Setting up Tor connections')
