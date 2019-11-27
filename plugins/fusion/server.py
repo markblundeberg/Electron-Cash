@@ -65,10 +65,10 @@ rng.seed(secrets.token_bytes(32))
 
 def clientjob_send(client, msg, timeout = Protocol.STANDARD_TIMEOUT):
     client.send(msg, timeout=timeout)
-def clientjob_goodbye(client, msg, timeout = Protocol.STANDARD_TIMEOUT):
+def clientjob_goodbye(client, text, timeout = Protocol.STANDARD_TIMEOUT):
     # a gentler goodbye than killing
-    if msg is not None:
-        client.send(msg, timeout=timeout)
+    if text is not None:
+        client.send_error(text, timeout=timeout)
     raise client.Disconnect
 
 class ClientThread(ClientHandlerThread):
