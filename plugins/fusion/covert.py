@@ -225,7 +225,7 @@ class CovertSubmitter(PrintError):
             self.print_error(f"stopping; connections will close in ~{self.stop_tstart - time.monotonic():.3f}s")
             self.wake_all()
 
-    def schedule_connections(self, tstart, tend, num_spares = 0, connect_timeout = 10):
+    def schedule_connections(self, tstart, tspan, num_spares = 0, connect_timeout = 10):
         """ Schedule connections to start. For any slots without a connection,
         they will have one allocated. Additionally, new spare connections will
         be started until the number of remaining spares is >= num_spares.
@@ -249,7 +249,7 @@ class CovertSubmitter(PrintError):
             for covconn in newconns:
                 covconn.conn_number = self.count_attempted
                 self.count_attempted += 1
-                conn_time = tstart + (tend-tstart) * rand_trap(self.rng)
+                conn_time = tstart + tspan * rand_trap(self.rng)
                 rand_delay = self.randspan * rand_trap(self.rng)
                 thread = threading.Thread(name=f'CovertSubmitter-{covconn.conn_number}',
                                           target=self.run_connection,

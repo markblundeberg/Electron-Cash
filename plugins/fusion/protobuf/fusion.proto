@@ -91,6 +91,7 @@ message FusionBegin { // from server
     required bytes covert_domain = 2;
     required uint32 covert_port = 3;
     optional bool covert_ssl = 4;
+    required fixed64 server_time = 5; // server unix time when sending this message; can't be too far off from recipient's clock.
 }
 
 

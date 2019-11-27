@@ -248,6 +248,7 @@ class Fusion(threading.Thread, PrintError):
         # - which txids we've already scanned for spends of our coins.
         self.source_wallet_info = defaultdict(lambda:(set(), set(), set()))
         self.distinct_inputs = 0
+        self.roundcount = 0
 
     def add_coins(self, coins, keypairs):
         """ Add given P2PKH coins to be used as inputs in a fusion.
@@ -381,18 +382,19 @@ class Fusion(threading.Thread, PrintError):
                 # Register for tiers, wait for a pool.
                 self.register_and_wait()
 
-                self.status = ('running', 'Starting')
-
-                # Pool started. Keep running rounds until fail or complete.
-                roundcount = 0
-                while True:
-                    roundcount += 1
-                    self.status = ('running', 'Starting round {}'.format(roundcount))
-                    try:
-                        if self.run_round():
-                            break
-                    except RestartRound:
-                        pass
+                # launch the covert submitter
+                covert = self.start_covert()
+                try:
+                    # Pool started. Keep running rounds until fail or complete.
+                    while True:
+                        self.roundcount += 1
+                        try:
+                            if self.run_round(covert):
+                                break
+                        except RestartRound:
+                            pass
+                finally:
+                    covert.stop()
 
             self.status = ('complete', 'time_wait')
 
@@ -545,11 +547,12 @@ class Fusion(threading.Thread, PrintError):
             # We should get a status update every 5 seconds.
             msg = self.recv('tierstatusupdate', 'fusionbegin', timeout=10)
 
+            if isinstance(msg, pb.FusionBegin):
+                break
+
             self.check_stop(running=False)
             self.check_coins()
 
-            if isinstance(msg, pb.FusionBegin):
-                break
             assert isinstance(msg, pb.TierStatusUpdate)
 
             statuses = msg.statuses
@@ -610,24 +613,72 @@ class Fusion(threading.Thread, PrintError):
                 self.status = ('waiting', tiers_string)
 
         # msg is FusionBegin
+        # Record the time we got it. Later in run_round we will check that the
+        # first round comes at a very particular time relative to this message.
+        self.t_fusionbegin = time.monotonic()
+
+        # Check the server's declared unix time, which will be committed.
+        clock_mismatch = msg.server_time - time.time()
+        if abs(clock_mismatch) > Protocol.MAX_CLOCK_DISCREPANCY:
+            raise FusionError(f"Clock mismatch too large: {clock_mismatch:+.3f}.")
+
         self.tier = msg.tier
         self.covert_domain_b = msg.covert_domain
         self.covert_port = msg.covert_port
         self.covert_ssl = msg.covert_ssl
+        self.begin_time = msg.server_time
         out_amounts = tier_outputs[self.tier]
         out_addrs = self.target_wallet.reserve_change_addresses(len(out_amounts), temporary=True)
         self.reserved_addresses = out_addrs
         self.outputs = list(zip(out_amounts, out_addrs))
 
-    def run_round(self):
-        msg = self.recv('startround')
+    def start_covert(self, ):
+        self.status = ('running', 'Setting up Tor connections')
+        try:
+            covert_domain = self.covert_domain_b.decode('ascii')
+        except:
+            raise FusionError('badly encoded covert domain')
+        covert = CovertSubmitter(covert_domain, self.covert_port, self.covert_ssl, self.tor_host, self.tor_port, self.num_components, Protocol.COVERT_SUBMIT_WINDOW, Protocol.COVERT_SUBMIT_TIMEOUT)
+        try:
+            covert.schedule_connections(self.t_fusionbegin, Protocol.COVERT_CONNECT_WINDOW, Protocol.COVERT_CONNECT_SPARES, Protocol.COVERT_CONNECT_TIMEOUT)
+
+            # loop until a just a bit before we're expecting startround, watching for status updates
+            tend = self.t_fusionbegin + (Protocol.WARMUP_TIME - Protocol.WARMUP_SLOP - 1)
+            while time.monotonic() < tend:
+                num_connected = sum(1 for s in covert.slots if s.covconn.connection is not None)
+                num_spare_connected = sum(1 for c in tuple(covert.spare_connections) if c.connection is not None)
+                self.status = ('running', f'Setting up Tor connections ({num_connected}+{num_spare_connected} out of {self.num_components})')
+                time.sleep(1)
+
+                covert.check_ok()
+                self.check_stop()
+                self.check_coins()
+
+        except:
+            covert.stop()
+            raise
+
+        return covert
+
+    def run_round(self, covert):
+        self.status = ('running', 'Starting round {}'.format(self.roundcount))
+        msg = self.recv('startround', timeout = 2 * Protocol.WARMUP_SLOP + Protocol.STANDARD_TIMEOUT)
         # record the time we got this message; it forms the basis time for all
         # covert activities.
         clock = time.monotonic
         covert_T0 = clock()
         covert_clock = lambda: clock() - covert_T0
 
-        # our final chance to leave nicely...
+        if self.t_fusionbegin is not None:
+            # On the first startround message, check that the warmup time
+            # was within acceptable bounds.
+            lag = covert_T0 - self.t_fusionbegin - Protocol.WARMUP_TIME
+            if abs(lag) > Protocol.WARMUP_SLOP:
+                raise FusionError(f"Warmup period too different from expectation (|{lag:.3f}s| > {Protocol.WARMUP_SLOP:.3f}s).")
+            self.t_fusionbegin = None
+
+        # our final chance to leave nicely, before requesting signatures.
+        covert.check_ok()
         self.check_stop()
         self.check_coins()
 
@@ -638,203 +689,199 @@ class Fusion(threading.Thread, PrintError):
         blind_nonce_points = msg.blind_nonce_points
         if len(blind_nonce_points) != self.num_components:
             raise FusionError('blind nonce miscount')
+
+        num_blanks = self.num_components - len(self.inputs) - len(self.outputs)
+        (mycommitments, mycomponentslots, mycomponents, myproofs, privkeys), pedersen_amount, pedersen_nonce = gen_components(num_blanks, self.inputs, self.outputs, self.component_feerate)
+
+        assert self.excess_fee == pedersen_amount # sanity check that we didn't mess up the above
+        assert len(set(mycomponents)) == len(mycomponents) # no duplicates
+
+        blindsigrequests = [schnorr.BlindSignatureRequest(round_pubkey, R, sha256(m))
+                            for R,m in zip(blind_nonce_points, mycomponents)]
+
+        random_number = secrets.token_bytes(32)
+
+        self.send(pb.PlayerCommit(initial_commitments = mycommitments,
+                                  excess_fee = self.excess_fee,
+                                  pedersen_total_nonce = pedersen_nonce,
+                                  random_number_commitment = sha256(random_number),
+                                  blind_sig_requests = [r.get_request() for r in blindsigrequests],
+                                  ))
+
+        msg = self.recv('blindsigresponses', timeout=Protocol.T_START_COMPS)
+        assert len(msg.scalars) == len(blindsigrequests)
+        blindsigs = [r.finalize(sbytes, check=True)
+                     for r,sbytes in zip(blindsigrequests, msg.scalars)]
+
+        # sleep until the covert component phase really starts, to catch covert connection failures.
+        remtime = Protocol.T_START_COMPS - covert_clock()
+        if remtime < 0:
+            raise FusionError('Arrived at covert-component phase too slowly.')
+        time.sleep(remtime)
+
+        # Our final check to leave the fusion pool, before we start telling our
+        # components. This is much more annoying since the server has to restart
+        # the round, but if we would end up killing the round anyway then it's
+        # best to leave now.
+        covert.check_connected()
+        self.check_coins()
+
+        ### Start covert component submissions
+        self.print_error("starting covert component submission")
+        self.status = ('running', 'covert submission: components')
+
+        # If we fail after this point, we want to stop connections gradually and
+        # randomly. We don't want to stop them
+        # all at once, since if we had already provided our input components
+        # then it would be a leak to have them all drop at once.
+        covert.set_stop_time(covert_T0 + Protocol.T_START_CLOSE)
+
+        # Schedule covert submissions.
+        messages = [None] * len(mycomponents)
+        for i, (comp, sig) in enumerate(zip(mycomponents, blindsigs)):
+            messages[mycomponentslots[i]] = pb.CovertComponent(round_pubkey = round_pubkey, signature = sig, component = comp)
+        assert all(messages)
+        covert.schedule_submissions(covert_T0 + Protocol.T_START_COMPS, messages, ping_spares = True)
+
+        # While submitting, we download the (large) full commitment list.
+        msg = self.recv('allcommitments', timeout=Protocol.T_START_SIGS)
+        all_commitments = tuple(msg.initial_commitments)
+
+        # Quick check on the commitment list.
+        if len(set(all_commitments)) != len(all_commitments):
+            raise FusionError('Commitments list includes duplicates.')
         try:
-            covert_domain = self.covert_domain_b.decode('ascii')
-        except:
-            raise FusionError('badly encoded covert domain')
+            my_commitment_idxes = [all_commitments.index(c) for c in mycommitments]
+        except ValueError:
+            raise FusionError('One or more of my commitments missing.')
 
-        # launch the covert submitter
-        covert = CovertSubmitter(covert_domain, self.covert_port, self.covert_ssl, self.tor_host, self.tor_port, self.num_components, Protocol.COVERT_SUBMIT_WINDOW, Protocol.COVERT_SUBMIT_TIMEOUT)
+        remtime = Protocol.T_START_SIGS - covert_clock()
+        if remtime < 0:
+            raise FusionError('took too long to download commitments list')
+
+        # Once all components are received, the server shares them with us:
+        msg = self.recv('sharecovertcomponents', timeout=Protocol.T_START_SIGS)
+        all_components = tuple(msg.components)
+        skip_signatures = bool(msg.skip_signatures)
+
+        # Critical check on server's response timing.
+        if covert_clock() > Protocol.T_START_SIGS:
+            raise FusionError('Shared components message arrived too slowly.')
+
+        covert.check_done()
+
+        # Find my components
         try:
-            covert.schedule_connections(covert_T0 + Protocol.T_FIRST_CONNECT, covert_T0 + Protocol.T_LAST_CONNECT, 6, Protocol.COVERT_CONNECT_TIMEOUT)
+            mycomponent_idxes = [all_components.index(c) for c in mycomponents]
+        except ValueError:
+            raise FusionError('One or more of my components missing.')
 
-            num_blanks = self.num_components - len(self.inputs) - len(self.outputs)
-            (mycommitments, mycomponentslots, mycomponents, myproofs, privkeys), pedersen_amount, pedersen_nonce = gen_components(num_blanks, self.inputs, self.outputs, self.component_feerate)
 
-            assert self.excess_fee == pedersen_amount # sanity check that we didn't mess up the above
-            assert len(set(mycomponents)) == len(mycomponents) # no duplicates
+        # TODO: check the components list and see if there are enough inputs/outputs
+        # for there to be significant privacy.
 
-            blindsigrequests = [schnorr.BlindSignatureRequest(round_pubkey, R, sha256(m))
-                                for R,m in zip(blind_nonce_points, mycomponents)]
 
-            random_number = secrets.token_bytes(32)
+        # The session hash includes all relevant information that the server
+        # should have told equally to all the players. If the server tries to
+        # sneakily spy on players by saying different things to them, then the
+        # users will sign different transactions and the fusion will fail.
+        session_hash = calc_session_hash(self.tier, self.covert_domain_b, self.covert_port, self.covert_ssl, self.begin_time, round_pubkey, all_commitments, all_components)
+        if msg.HasField('session_hash') and msg.session_hash != session_hash:
+            raise FusionError('Session hash mismatch (bug!)')
 
-            self.send(pb.PlayerCommit(initial_commitments = mycommitments,
-                                      excess_fee = self.excess_fee,
-                                      pedersen_total_nonce = pedersen_nonce,
-                                      random_number_commitment = sha256(random_number),
-                                      blind_sig_requests = [r.get_request() for r in blindsigrequests],
-                                      ))
+        ### Start covert signature submissions (or skip)
 
-            msg = self.recv('blindsigresponses', timeout=Protocol.T_START_COMPS)
-            assert len(msg.scalars) == len(blindsigrequests)
-            blindsigs = [r.finalize(sbytes, check=True)
-                         for r,sbytes in zip(blindsigrequests, msg.scalars)]
+        if not skip_signatures:
+            self.print_error("starting covert signature submission")
+            self.status = ('running', 'covert submission: signatures')
 
-            remtime = Protocol.T_START_COMPS - covert_clock()
-            if remtime < 0:
-                raise FusionError('Arrived at covert-component phase too slowly.')
-            # sleep until the covert component phase really starts, to catch covert connection failures.
-            time.sleep(remtime)
+            if len(set(all_components)) != len(all_components):
+                raise FusionError('Server component list includes duplicates.')
 
-            covert.check_connected()
+            tx, input_indices = tx_from_components(all_components, session_hash)
 
-            ### Start covert component submissions
-            self.print_error("starting covert component submission")
-            self.status = ('running', 'covert submission: components')
-
-            # If we fail after this point, we want to stop connections gradually and
-            # randomly. We don't want to stop them
-            # all at once, since if we had already provided our input components
-            # then it would be a leak to have them all drop at once.
-            covert.set_stop_time(covert_T0 + Protocol.T_START_CLOSE)
-
-            # Schedule covert submissions.
+            # iterate over my inputs and sign them
             messages = [None] * len(mycomponents)
-            for i, (comp, sig) in enumerate(zip(mycomponents, blindsigs)):
-                messages[mycomponentslots[i]] = pb.CovertComponent(round_pubkey = round_pubkey, signature = sig, component = comp)
-            assert all(messages)
-            covert.schedule_submissions(covert_T0 + Protocol.T_START_COMPS, messages, ping_spares = True)
+            for i, (cidx, inp) in enumerate(zip(input_indices, tx.inputs())):
+                try:
+                    mycompidx = mycomponent_idxes.index(cidx)
+                except ValueError:
+                    continue # not my input
+                sec, compressed = self.keypairs[inp['pubkeys'][0]]
+                sighash = sha256(sha256(bytes.fromhex(tx.serialize_preimage(i, 0x41, use_cache = True))))
+                sig = schnorr.sign(sec, sighash)
 
-            # While submitting, we download the (large) full commitment list.
-            msg = self.recv('allcommitments', timeout=Protocol.T_START_SIGS)
-            all_commitments = tuple(msg.initial_commitments)
+                messages[mycomponentslots[mycompidx]] = pb.CovertTransactionSignature(txsignature = sig, which_input = i)
+            covert.schedule_submissions(covert_T0 + Protocol.T_START_SIGS, messages, ping_Nones = True, ping_spares = True)
 
-            # Quick check on the commitment list.
-            if len(set(all_commitments)) != len(all_commitments):
-                raise FusionError('Commitments list includes duplicates.')
-            try:
-                my_commitment_idxes = [all_commitments.index(c) for c in mycommitments]
-            except ValueError:
-                raise FusionError('One or more of my commitments missing.')
-
-            remtime = Protocol.T_START_SIGS - covert_clock()
-            if remtime < 0:
-                raise FusionError('took too long to download commitments list')
-
-            # Once all components are received, the server shares them with us:
-            msg = self.recv('sharecovertcomponents', timeout=Protocol.T_START_SIGS)
-            all_components = tuple(msg.components)
-            skip_signatures = bool(msg.skip_signatures)
+            # wait for result
+            msg = self.recv('fusionresult', timeout=Protocol.T_EXPECTING_CONCLUSION - Protocol.TS_EXPECTING_COVERT_COMPONENTS)
 
             # Critical check on server's response timing.
-            if covert_clock() > Protocol.T_START_SIGS:
-                raise FusionError('Shared components message arrived too slowly.')
+            if covert_clock() > Protocol.T_EXPECTING_CONCLUSION:
+                raise FusionError('Fusion result message arrived too slowly.')
 
             covert.check_done()
 
-            # Find my components
-            try:
-                mycomponent_idxes = [all_components.index(c) for c in mycomponents]
-            except ValueError:
-                raise FusionError('One or more of my components missing.')
+            if msg.ok:
+                allsigs = msg.txsignatures
+                # assemble the transaction.
+                if len(allsigs) != len(tx.inputs()):
+                    raise FusionError('Server gave wrong number of signatures.')
+                for i, (sig, inp) in enumerate(zip(allsigs, tx.inputs())):
+                    if len(sig) != 64:
+                        raise FusionError('server relayed bad signature')
+                    inp['signatures'] = [sig.hex() + '41']
 
+                assert tx.is_complete()
+                txhex = tx.serialize()
 
-            # TODO: check the components list and see if there are enough inputs/outputs
-            # for there to be significant privacy.
+                txid = tx.txid()
+                sum_in = sum(amt for (_, _), (pub, amt) in self.inputs)
+                sum_out = sum(amt for amt, addr in self.outputs)
+                sum_in_str = format_satoshis(sum_in, num_zeros=8)
+                fee_str = str(sum_in - sum_out)
+                feeloc = _('fee')
+                label = f"CashFusion {len(self.inputs)}⇢{len(self.outputs)}, {sum_in_str} BCH (−{fee_str} sats {feeloc})"
+                wallets = set(self.source_wallet_info.keys())
+                wallets.add(self.target_wallet)
+                if len(wallets) > 1:
+                    label += f" {sorted(str(w) for w in self.source_wallet_info.keys())!r} ➡ {str(self.target_wallet)!r}"
+                # If we have any sweep-inputs, should also modify label
+                # If we have any send-outputs, should also modify label
+                for w in wallets:
+                    with w.lock:
+                        existing_label = w.labels.get(txid, None)
+                        if existing_label is not None:
+                            label = existing_label + '; ' + label
+                        w.set_label(txid, label)
 
+                self.txid = txid
 
-            # The session hash includes all relevant information that the server
-            # should have told equally to all the players. If the server tries to
-            # sneakily spy on players by saying different things to them, then the
-            # users will sign different transactions and the fusion will fail.
-            session_hash = calc_session_hash(self.tier, self.covert_domain_b, self.covert_port, self.covert_ssl, round_pubkey, all_commitments, all_components)
-            if msg.HasField('session_hash') and msg.session_hash != session_hash:
-                raise FusionError('Session hash mismatch (bug!)')
+                try:
+                    self.network.broadcast_transaction2(tx,)
+                except ServerErrorResponse as e:
+                    nice_msg, = e.args
+                    server_msg = e.server_msg
+                    if r"txn-already-in-mempool" not in server_msg and r"txn-already-known" not in server_msg and r"transaction already in block chain" not in server_msg:
+                        server_msg = server_msg.replace(txhex, "<...tx hex...>")
+                        self.print_error("tx broadcast failed:", repr(server_msg))
+                        raise FusionError(f"could not broadcast the transaction! {nice_msg}")
 
-            ### Start covert signature submissions (or skip)
-
-            if not skip_signatures:
-                self.print_error("starting covert signature submission")
-                self.status = ('running', 'covert submission: signatures')
-
-                if len(set(all_components)) != len(all_components):
-                    raise FusionError('Server component list includes duplicates.')
-
-                tx, input_indices = tx_from_components(all_components, session_hash)
-
-                # iterate over my inputs and sign them
-                messages = [None] * len(mycomponents)
-                for i, (cidx, inp) in enumerate(zip(input_indices, tx.inputs())):
-                    try:
-                        mycompidx = mycomponent_idxes.index(cidx)
-                    except ValueError:
-                        continue # not my input
-                    sec, compressed = self.keypairs[inp['pubkeys'][0]]
-                    sighash = sha256(sha256(bytes.fromhex(tx.serialize_preimage(i, 0x41, use_cache = True))))
-                    sig = schnorr.sign(sec, sighash)
-
-                    messages[mycomponentslots[mycompidx]] = pb.CovertTransactionSignature(txsignature = sig, which_input = i)
-                covert.schedule_submissions(covert_T0 + Protocol.T_START_SIGS, messages, ping_Nones = True, ping_spares = True)
-
-                # wait for result
-                msg = self.recv('fusionresult', timeout=Protocol.T_EXPECTING_CONCLUSION - Protocol.TS_EXPECTING_COVERT_COMPONENTS)
-
-                # Critical check on server's response timing.
-                if covert_clock() > Protocol.T_EXPECTING_CONCLUSION:
-                    raise FusionError('Fusion result message arrived too slowly.')
-
-                covert.check_done()
-
-                if msg.ok:
-                    allsigs = msg.txsignatures
-                    # assemble the transaction.
-                    if len(allsigs) != len(tx.inputs()):
-                        raise FusionError('Server gave wrong number of signatures.')
-                    for i, (sig, inp) in enumerate(zip(allsigs, tx.inputs())):
-                        if len(sig) != 64:
-                            raise FusionError('server relayed bad signature')
-                        inp['signatures'] = [sig.hex() + '41']
-
-                    assert tx.is_complete()
-                    txhex = tx.serialize()
-
-                    txid = tx.txid()
-                    sum_in = sum(amt for (_, _), (pub, amt) in self.inputs)
-                    sum_out = sum(amt for amt, addr in self.outputs)
-                    sum_in_str = format_satoshis(sum_in, num_zeros=8)
-                    fee_str = str(sum_in - sum_out)
-                    feeloc = _('fee')
-                    label = f"CashFusion {len(self.inputs)}⇢{len(self.outputs)}, {sum_in_str} BCH (−{fee_str} sats {feeloc})"
-                    wallets = set(self.source_wallet_info.keys())
-                    wallets.add(self.target_wallet)
-                    if len(wallets) > 1:
-                        label += f" {sorted(str(w) for w in self.source_wallet_info.keys())!r} ➡ {str(self.target_wallet)!r}"
-                    # If we have any sweep-inputs, should also modify label
-                    # If we have any send-outputs, should also modify label
-                    for w in wallets:
-                        with w.lock:
-                            existing_label = w.labels.get(txid, None)
-                            if existing_label is not None:
-                                label = existing_label + '; ' + label
-                            w.set_label(txid, label)
-
-                    self.txid = txid
-
-                    try:
-                        self.network.broadcast_transaction2(tx,)
-                    except ServerErrorResponse as e:
-                        nice_msg, = e.args
-                        server_msg = e.server_msg
-                        if r"txn-already-in-mempool" not in server_msg and r"txn-already-known" not in server_msg and r"transaction already in block chain" not in server_msg:
-                            server_msg = server_msg.replace(txhex, "<...tx hex...>")
-                            self.print_error("tx broadcast failed:", repr(server_msg))
-                            raise FusionError(f"could not broadcast the transaction! {nice_msg}")
-
-                    self.print_error(f"successful broadcast of {txid}")
-                    return True
-                else:
-                    bad_components = set(msg.bad_components)
-                    if not bad_components.isdisjoint(mycomponent_idxes):
-                        self.print_error(f"bad components: {sorted(bad_components)} mine: {sorted(mycomponent_idxes)}")
-                        raise FusionError("server thinks one of my components is bad!")
-            else: # skip_signatures True
-                bad_components = set()
-        finally:
-            covert.stop()
+                self.print_error(f"successful broadcast of {txid}")
+                return True
+            else:
+                bad_components = set(msg.bad_components)
+                if not bad_components.isdisjoint(mycomponent_idxes):
+                    self.print_error(f"bad components: {sorted(bad_components)} mine: {sorted(mycomponent_idxes)}")
+                    raise FusionError("server thinks one of my components is bad!")
+        else: # skip_signatures True
+            bad_components = set()
 
 
         ### Blame phase ###
+
+        covert.set_stop_time(covert_T0 + Protocol.T_START_CLOSE_BLAME)
         self.print_error("sending proofs")
         self.status = ('running', 'round failed - sending proofs')
 
@@ -912,6 +959,8 @@ class Fusion(threading.Thread, PrintError):
 
         self.print_error("sending blames")
         self.send(pb.Blames(blames = blames))
+
+        self.status = ('running', 'awaiting restart')
 
         # Await the final 'restartround' message. It might take some time
         # to arrive since other players might be slow, and then the server
