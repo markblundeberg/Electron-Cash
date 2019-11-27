@@ -626,9 +626,10 @@ class FusionController(threading.Thread, PrintError):
             else:
                 for i, (inp, sig) in enumerate(zip(tx.inputs(), signatures)):
                     inp['signatures'][0] = sig.hex() + '41'
-                self.print_error("completed the transaction!")
 
                 assert tx.is_complete()
+                txid = tx.txid()
+                self.print_error("completed the transaction! " + txid)
 
                 try:
                     self.network.broadcast_transaction2(tx,)
