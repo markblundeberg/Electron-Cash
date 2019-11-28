@@ -880,6 +880,8 @@ class Fusion(threading.Thread, PrintError):
         others_commitment_idxes = [i for i in range(len(all_commitments)) if i not in my_commitment_idxes]
         N = len(others_commitment_idxes)
         assert N == len(all_commitments) - len(mycommitments)
+        if N == 0:
+            raise FusionError("Fusion failed with only me as player -- I can only blame myself.")
 
         # where should I send my proofs?
         dst_commits = [all_commitments[others_commitment_idxes[rand_position(random_number, N, i)]] for i in range(len(mycommitments))]
