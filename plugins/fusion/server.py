@@ -6,7 +6,7 @@ import socket, threading, time, sys, traceback, secrets
 from collections import defaultdict
 
 from .comms import send_pb, recv_pb, ClientHandlerThread, GenericServer
-from .util import FusionError, sha256, calc_session_hash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
+from .util import FusionError, sha256, calc_initial_hash, calc_round_hash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
 from . import fusion_pb2 as pb
 from . import pedersen
 from .validation import check_playercommit, check_covert_component, validate_blame, ValidationError, check_input_electrumx
@@ -428,12 +428,14 @@ class FusionController(threading.Thread, PrintError):
         covert_server.noisy = Params.noisy
         covert_server.start()
         try:
-            self.begin_time = round(time.time())
+            begin_time = round(time.time())
             self.sendall(pb.FusionBegin(tier = self.tier,
                                         covert_domain = covert_server.host_b,
                                         covert_port = covert_server.port,
                                         covert_ssl = False,
-                                        server_time = self.begin_time))
+                                        server_time = begin_time))
+
+            self.last_hash = calc_initial_hash(self.tier, covert_server.host_b, covert_server.port, False, begin_time)
 
             time.sleep(Protocol.WARMUP_TIME)
 
@@ -480,12 +482,14 @@ class FusionController(threading.Thread, PrintError):
         seen_salthashes = set()
 
         # Send start message to players; record the time we did this
+        round_time = round(time.time())
 
         collector = ResultsCollector(len(self.clients), done_on_fail = False)
         def client_start(c, collector):
             with collector:
                 c.send(pb.StartRound(round_pubkey = round_pubkey,
                                      blind_nonce_points = [b.get_R() for b in c.blinds],
+                                     server_time = round_time
                                      ))
                 msg = c.recv('playercommit')
 
@@ -563,6 +567,8 @@ class FusionController(threading.Thread, PrintError):
             skip_signatures = True
             self.print_error("problem detected: excess fee mismatch")
 
+        self.last_hash = session_hash = calc_round_hash(self.last_hash, round_pubkey, round_time, all_commitments, all_components)
+
         #TODO : Check the inputs and outputs to see if we even have reasonable
         # privacy with what we have.
 
@@ -573,7 +579,6 @@ class FusionController(threading.Thread, PrintError):
             self.sendall(pb.ShareCovertComponents(components = all_components, skip_signatures = True))
         else:
             self.print_error("starting covert signature acceptance")
-            session_hash = calc_session_hash(self.tier, covert_server.host_b, covert_server.port, False, self.begin_time, round_pubkey, all_commitments, all_components)
 
             tx, input_indices = tx_from_components(all_components, session_hash)
 

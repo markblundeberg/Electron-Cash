@@ -100,6 +100,7 @@ message FusionBegin { // from server
 message StartRound { // from server
     required bytes round_pubkey = 1;
     repeated bytes blind_nonce_points = 2;
+    required fixed64 server_time = 5; // server unix time when sending this message; can't be too far off from recipient's clock.
     }
 
 // Phase 3

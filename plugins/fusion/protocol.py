@@ -11,7 +11,7 @@ from . import pedersen
 
 # this class doesn't get instantiated, it's just a bag of values.
 class Protocol:
-    VERSION = b'alpha11'
+    VERSION = b'alpha12'
     PEDERSEN = pedersen.PedersenSetup(b'\x02CashFusion gives us fungibility.')
 
     # 4-byte 'lokad' identifier at start of OP_RETURN

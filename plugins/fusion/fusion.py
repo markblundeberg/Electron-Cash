@@ -17,7 +17,7 @@ from .comms import open_connection, send_pb, recv_pb
 from . import fusion_pb2 as pb
 from . import pedersen
 from .covert import CovertSubmitter, is_tor_port
-from .util import FusionError, sha256, calc_session_hash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
+from .util import FusionError, sha256, calc_initial_hash, calc_round_hash, size_of_input, size_of_output, component_fee, dust_limit, gen_keypair, tx_from_components, rand_position
 from .validation import validate_proof_internal, ValidationError, check_input_electrumx
 from . import encrypt
 from .protocol import Protocol
@@ -616,6 +616,9 @@ class Fusion(threading.Thread, PrintError):
         self.covert_port = msg.covert_port
         self.covert_ssl = msg.covert_ssl
         self.begin_time = msg.server_time
+
+        self.last_hash = calc_initial_hash(self.tier, msg.covert_domain, msg.covert_port, msg.covert_ssl, msg.server_time)
+
         out_amounts = tier_outputs[self.tier]
         out_addrs = self.target_wallet.reserve_change_addresses(len(out_amounts), temporary=True)
         self.reserved_addresses = out_addrs
@@ -658,6 +661,13 @@ class Fusion(threading.Thread, PrintError):
         clock = time.monotonic
         covert_T0 = clock()
         covert_clock = lambda: clock() - covert_T0
+
+        round_time = msg.server_time
+
+        # Check the server's declared unix time, which will be committed.
+        clock_mismatch = msg.server_time - time.time()
+        if abs(clock_mismatch) > Protocol.MAX_CLOCK_DISCREPANCY:
+            raise FusionError(f"Clock mismatch too large: {clock_mismatch:+.3f}.")
 
         if self.t_fusionbegin is not None:
             # On the first startround message, check that the warmup time
@@ -776,7 +786,7 @@ class Fusion(threading.Thread, PrintError):
         # should have told equally to all the players. If the server tries to
         # sneakily spy on players by saying different things to them, then the
         # users will sign different transactions and the fusion will fail.
-        session_hash = calc_session_hash(self.tier, self.covert_domain_b, self.covert_port, self.covert_ssl, self.begin_time, round_pubkey, all_commitments, all_components)
+        self.last_hash = session_hash = calc_round_hash(self.last_hash, round_pubkey, round_time, all_commitments, all_components)
         if msg.HasField('session_hash') and msg.session_hash != session_hash:
             raise FusionError('Session hash mismatch (bug!)')
 
