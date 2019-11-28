@@ -11,11 +11,11 @@ from . import pedersen
 
 # this class doesn't get instantiated, it's just a bag of values.
 class Protocol:
-    VERSION = b'alpha12'
+    VERSION = b'alpha13'
     PEDERSEN = pedersen.PedersenSetup(b'\x02CashFusion gives us fungibility.')
 
     # 4-byte 'lokad' identifier at start of OP_RETURN
-    FUSE_ID = b'fuse'
+    FUSE_ID = b'FUZ\x00'
 
     # The server only enforces dust limits, but clients should not make outputs
     # smaller than this.
