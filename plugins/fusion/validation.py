@@ -96,17 +96,23 @@ def check_covert_component(msg, round_pubkey, component_feerate):
         check(   (len(inp.pubkey) == 33 and inp.pubkey[0] in (2,3))
               or (len(inp.pubkey) == 65 and inp.pubkey[0] == 4),
               "bad pubkey")
+        sort_key = ('i', inp.prev_txid[::-1], inp.prev_index, cmsg.salt_commitment)
     elif ctype == 'output':
         out = cmsg.output
         atype, addr = get_address_from_output_script(out.scriptpubkey)
         check(atype == TYPE_ADDRESS, "output is not address")
         check(out.amount >= dust_limit(len(out.scriptpubkey)), "dust output")
+        sort_key = ('o', out.amount, out.scriptpubkey, cmsg.salt_commitment)
     elif ctype == 'blank':
-        pass
+        sort_key = ('b', cmsg.salt_commitment)
     else:
         raise ValidationError('missing component details')
 
-    return ctype, component_contrib(cmsg, component_feerate)
+    # Note: for each sort type we use salt_commitment as a tie-breaker, just to
+    # make sure that original ordering is forgotten. Of course salt_commitment
+    # doesn't have to be unique, but it's unique for all honest players.
+
+    return sort_key, component_contrib(cmsg, component_feerate)
 
 def validate_proof_internal(proofblob, commitment, all_components, bad_components, component_feerate):
     """ Validate a proof as far as we can without checking blockchain.
