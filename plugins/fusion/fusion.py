@@ -484,7 +484,11 @@ class Fusion(threading.Thread, PrintError):
         #
         # TODO Here we can perform fuzzing of the avail_for_outputs amount, keeping in
         # mind the max_excess_fee limit...
+        # For now, just throw on a few extra sats.
         #
+        fuzz_fee = secrets.randbelow(10)
+        assert fuzz_fee < 100, 'sanity check: example fuzz fee should be small'
+        avail_for_outputs -= fuzz_fee
 
         self.excess_fee = sum_inputs_value - input_fees - avail_for_outputs
 
