@@ -11,7 +11,7 @@ from . import pedersen
 
 # this class doesn't get instantiated, it's just a bag of values.
 class Protocol:
-    VERSION = b'alpha9'
+    VERSION = b'alpha10'
     PEDERSEN = pedersen.PedersenSetup(b'\x02CashFusion gives us fungibility.')
 
     # The server only enforces dust limits, but clients should not make outputs

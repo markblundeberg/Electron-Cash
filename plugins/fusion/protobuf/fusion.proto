@@ -189,9 +189,8 @@ message Blames { // from client
     repeated BlameProof blames = 1;
     }
 
-// Can be sent by server in a variety of phases.
+// Final message of the round
 message RestartRound {
-    optional string message = 1;
 }
 
 // Fatal error from server, likely we did something wrong (it will disconnect us, but the message may help debugging).
