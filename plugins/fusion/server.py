@@ -551,10 +551,11 @@ class FusionController(threading.Thread, PrintError):
         component_master_list = list(covert_server.end_components().items())
         self.print_error(f"ending covert component acceptance. {len(component_master_list)} received.")
 
-        # Shuffle the components & contribs list, then separate it out.
-        rng.shuffle(component_master_list)
-        all_components = [comp for comp, contrib in component_master_list]
-        component_contribs = [contrib for comp, contrib in component_master_list]
+        # Sort the components & contribs list, then separate it out.
+        component_master_list.sort(key=lambda x:x[1][0])
+        all_components = [comp for comp, (sort_key, contrib) in component_master_list]
+        component_contribs = [contrib for comp, (sort_key, contrib) in component_master_list]
+        del component_master_list
 
         # Do some preliminary checks to see whether we should just skip the
         # signing phase and go directly to blame, or maybe even restart / end
@@ -873,11 +874,11 @@ class CovertServer(GenericServer):
                     _ = self.components
                 except AttributeError:
                     client.error('component submitted at wrong time')
-                ctype, contrib = check_covert_component(msg, round_pubkey, feerate)
+                sort_key, contrib = check_covert_component(msg, round_pubkey, feerate)
 
                 with self.lock:
                     try:
-                        self.components[msg.component] = contrib
+                        self.components[msg.component] = (sort_key, contrib)
                     except AttributeError:
                         client.error('component submitted at wrong time')
 
