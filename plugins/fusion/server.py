@@ -551,6 +551,11 @@ class FusionController(threading.Thread, PrintError):
             del c.blinds, c.blind_sig_requests
         del results, collector
 
+        # Sleep a bit before uploading commitments, as clients are doing this.
+        remtime = covert_T0 + Protocol.T_START_COMPS - time.monotonic()
+        if remtime > 0:
+            time.sleep(remtime)
+
         # Upload the full commitment list; we're a bit generous with the timeout but that's OK.
         self.sendall(pb.AllCommitments(initial_commitments = all_commitments),
                      timeout=Protocol.TS_EXPECTING_COVERT_SIGNATURES)
