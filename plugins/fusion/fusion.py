@@ -60,11 +60,6 @@ def can_fuse_to(wallet):
 # we only use it to generate a few floating point numbers, with cryptographically secure seed.
 from random import Random
 
-# Internally used exception, shouldn't leak out to callers.
-
-class RestartRound(Exception):
-    pass
-
 def random_outputs_for_tier(rng, input_amount, scale, offset, max_count, allow_extra_change=False):
     """ Make up to `max_number` random output values, chosen using exponential
     distribution function. All parameters should be positive `int`s.
@@ -388,11 +383,8 @@ class Fusion(threading.Thread, PrintError):
                     # Pool started. Keep running rounds until fail or complete.
                     while True:
                         self.roundcount += 1
-                        try:
-                            if self.run_round(covert):
-                                break
-                        except RestartRound:
-                            pass
+                        if self.run_round(covert):
+                            break
                 finally:
                     covert.stop()
 
@@ -435,11 +427,8 @@ class Fusion(threading.Thread, PrintError):
             raise FusionError(self.stop_reason)
 
     def recv(self, *expected_msg_names, timeout=None):
-        submsg, mtype = recv_pb(self.connection, pb.ServerMessage, 'restartround', 'error', *expected_msg_names, timeout=timeout)
+        submsg, mtype = recv_pb(self.connection, pb.ServerMessage, 'error', *expected_msg_names, timeout=timeout)
 
-        if mtype == 'restartround':
-            self.print_error("restarting round: {!r}".format(submsg.message))
-            raise RestartRound
         if mtype == 'error':
             raise FusionError('server error: {!r}'.format(submsg.message))
 
@@ -678,11 +667,6 @@ class Fusion(threading.Thread, PrintError):
                 raise FusionError(f"Warmup period too different from expectation (|{lag:.3f}s| > {Protocol.WARMUP_SLOP:.3f}s).")
             self.t_fusionbegin = None
 
-        # our final chance to leave nicely, before requesting signatures.
-        covert.check_ok()
-        self.check_stop()
-        self.check_coins()
-
         self.print_error(f"round starting at {time.time()}")
 
         round_pubkey = msg.round_pubkey
@@ -701,6 +685,11 @@ class Fusion(threading.Thread, PrintError):
                             for R,m in zip(blind_nonce_points, mycomponents)]
 
         random_number = secrets.token_bytes(32)
+
+        # our final chance to leave in the nicest way possible: before sending commitments / requesting signatures.
+        covert.check_ok()
+        self.check_stop()
+        self.check_coins()
 
         self.send(pb.PlayerCommit(initial_commitments = mycommitments,
                                   excess_fee = self.excess_fee,
@@ -721,9 +710,10 @@ class Fusion(threading.Thread, PrintError):
         time.sleep(remtime)
 
         # Our final check to leave the fusion pool, before we start telling our
-        # components. This is much more annoying since the server has to restart
-        # the round, but if we would end up killing the round anyway then it's
-        # best to leave now.
+        # components. This is much more annoying since it will cause the round
+        # to fail, but since we would end up killing the round anyway then it's
+        # best for our privacy if we just leave now.
+        # (This also is our first call to check_connected.)
         covert.check_connected()
         self.check_coins()
 
@@ -966,6 +956,4 @@ class Fusion(threading.Thread, PrintError):
         # Await the final 'restartround' message. It might take some time
         # to arrive since other players might be slow, and then the server
         # itself needs to check blockchain.
-        self.recv(timeout = 2 * (Protocol.STANDARD_TIMEOUT + Protocol.BLAME_VERIFY_TIME))
-
-        raise RuntimeError('hit an unreachable point in the code!')
+        self.recv('restartround', timeout = 2 * (Protocol.STANDARD_TIMEOUT + Protocol.BLAME_VERIFY_TIME))

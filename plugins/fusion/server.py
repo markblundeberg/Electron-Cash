@@ -563,11 +563,6 @@ class FusionController(threading.Thread, PrintError):
             skip_signatures = True
             self.print_error("problem detected: excess fee mismatch")
 
-        if any(c.dead for c in self.clients):
-            # a player might have dropped out since last check
-            self.sendall(pb.RestartRound(message = 'player left'))
-            return
-
         #TODO : Check the inputs and outputs to see if we even have reasonable
         # privacy with what we have.
 
@@ -651,9 +646,6 @@ class FusionController(threading.Thread, PrintError):
         ###
         self.print_error(f"entering blame phase. bad components: {bad_components}")
 
-        if any(c.dead for c in self.clients):
-            self.sendall(pb.RestartRound(message = 'player left'))
-            return
         if len(self.clients) < 2:
             # Sanity check for testing -- the proof sharing thing doesn't even make sense with one player.
             for c in self.clients:
@@ -778,7 +770,7 @@ class FusionController(threading.Thread, PrintError):
             client.addjob(client_get_blames, idx, proofs, collector)
         _ = collector.gather(deadline = time.monotonic() + Protocol.STANDARD_TIMEOUT + Protocol.BLAME_VERIFY_TIME * 2)
 
-        self.sendall(pb.RestartRound(message = 'round finished'))
+        self.sendall(pb.RestartRound())
 
 
 class CovertClientThread(ClientHandlerThread):
