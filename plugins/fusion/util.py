@@ -87,8 +87,13 @@ def tx_from_components(all_components, session_hash):
     """ Returns the tx and a list of indices matching inputs with components"""
     input_indices = []
     assert len(session_hash) == 32
+    if Protocol.FUSE_ID is None:
+        prefix = []
+    else:
+        assert len(Protocol.FUSE_ID) == 4
+        prefix = [4, *Protocol.FUSE_ID]
     inputs = []
-    outputs = [(TYPE_SCRIPT, ScriptOutput(bytes([OpCodes.OP_RETURN, 32]) + session_hash), 0)]
+    outputs = [(TYPE_SCRIPT, ScriptOutput(bytes([OpCodes.OP_RETURN, *prefix, 32]) + session_hash), 0)]
     for i,compser in enumerate(all_components):
         comp = pb.Component()
         comp.ParseFromString(compser)
