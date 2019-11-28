@@ -505,12 +505,8 @@ class FusionController(threading.Thread, PrintError):
                 if not collector.add((c, msg.initial_commitments, msg.excess_fee)):
                     c.error("late commitment")
 
-            # reply with blind signatures immediately
-            scalars = [b.sign(covert_priv, e) for b,e in zip(c.blinds, msg.blind_sig_requests)]
-            del c.blinds
-            c.send(pb.BlindSigResponses(scalars = scalars))
-
             # record for later
+            c.blind_sig_requests = msg.blind_sig_requests
             c.random_number_commitment = msg.random_number_commitment
 
         for client in self.clients:
@@ -536,6 +532,11 @@ class FusionController(threading.Thread, PrintError):
         rng.shuffle(commitment_master_list)
         all_commitments = tuple(commit for commit,ci,cj in commitment_master_list)
 
+        # Send blind signatures
+        for c in self.clients:
+            scalars = [b.sign(covert_priv, e) for b,e in zip(c.blinds, c.blind_sig_requests)]
+            c.addjob(clientjob_send, pb.BlindSigResponses(scalars = scalars))
+            del c.blinds, c.blind_sig_requests
         del results, collector
 
         # Upload the full commitment list; we're a bit generous with the timeout but that's OK.
