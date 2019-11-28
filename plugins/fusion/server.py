@@ -26,7 +26,6 @@ E24 = [1.0, 1.1, 1.2, 1.3, 1.5, 1.6, 1.8, 2.0, 2.2, 2.4, 2.7, 3.0, 3.3, 3.6, 3.9
 class Params:
     num_components = 23
     component_feerate = 1000 # sats/kB
-    min_excess_fee = 60 # sats
     max_excess_fee = 300000 # sats
     tiers = [round(b*s) for b in [10000, 100000, 1000000] for s in E12]
 
@@ -37,6 +36,19 @@ class Params:
 
     # Every round, clients leave ... How many clients do we need as an absolute minimum (for privacy)?
     min_safe_clients = 4
+
+    # Choose the minimum excess fee based on dividing the overhead amongst players, in the smallest fusion
+    # (these overhead numbers assume op_return script size of 1 + 5 (lokad) + 33 (session hash) )
+    if min_safe_clients * num_components >= 2 * 0xfc:
+        # the smallest fusion could require 3-byte varint for both inputs and outputs lists
+        overhead = 62
+    elif min_safe_clients * num_components >= 0xfc:
+        # the smallest fusion could require 3-byte varint for either inputs or outputs lists
+        overhead = 60
+    else:
+        # the smallest fusion will use 1-byte varint for both inputs and outputs lists
+        overhead = 58
+    min_excess_fee = (overhead + min_safe_clients - 1) // min_safe_clients
 
     # How many clients can share same tag on a given tier (if more try to join, reject)
     max_tier_client_tags = 10
