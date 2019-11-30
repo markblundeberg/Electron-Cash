@@ -867,7 +867,7 @@ class Fusion(threading.Thread, PrintError):
                     self.network.broadcast_transaction2(tx,)
                 except ServerErrorResponse as e:
                     nice_msg, = e.args
-                    server_msg = e.server_msg
+                    server_msg = str(e.server_msg)
                     if r"txn-already-in-mempool" not in server_msg and r"txn-already-known" not in server_msg and r"transaction already in block chain" not in server_msg:
                         server_msg = server_msg.replace(txhex, "<...tx hex...>")
                         self.print_error("tx broadcast failed:", repr(server_msg))
