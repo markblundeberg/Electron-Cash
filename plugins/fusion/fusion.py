@@ -396,9 +396,10 @@ class Fusion(threading.Thread, PrintError):
                     break # not an error
                 for w in self.source_wallet_info:
                     if self.txid not in w.transactions:
-                        time.sleep(1)
-                        continue
-                break
+                        break
+                else:
+                    break
+                time.sleep(1)
 
             self.status = ('complete', 'txid: ' + self.txid)
         except FusionError as err:
