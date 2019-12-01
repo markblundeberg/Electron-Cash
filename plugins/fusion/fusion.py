@@ -807,6 +807,13 @@ class Fusion(threading.Thread, PrintError):
             tx, input_indices = tx_from_components(all_components, session_hash)
 
             # iterate over my inputs and sign them
+            # We don't use tx.sign() here since:
+            # - it doesn't currently allow us to use sighash cache.
+            # - it's a bit dangerous to sign all inputs since this invites
+            #   attackers to try to get us to sign coins we own but that we
+            #   didn't submit. (with other bugs, could lead to funds loss!).
+            # - we'd need to extract out the result anyway, so doesn't win
+            #   anything in simplicity.
             messages = [None] * len(mycomponents)
             for i, (cidx, inp) in enumerate(zip(input_indices, tx.inputs())):
                 try:
