@@ -110,7 +110,6 @@ def select_random_coins(wallet, eligible, balance, max_coins):
     select_type, select_amount = wallet.storage.get('cashfusion_selector', DEFAULT_SELECTOR)
     if select_type == 'size':
         # user wants to get a typical output of this size (in sats)
-        sum_amount = sum(c['value'] for c in coins)  # available balance
         fraction = COIN_FRACTION_FUDGE_FACTOR * select_amount / balance
     elif select_type == 'count':
         # user wants this number of coins
