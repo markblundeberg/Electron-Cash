@@ -30,12 +30,12 @@ class Params:
     tiers = [round(b*s) for b in [10000, 100000, 1000000, 10000000] for s in E12]
 
     # How many clients do we want before starting a fusion?
-    min_clients = 6
+    min_clients = 8
     # If all clients submitted largest possible component (uncompressed p2pkh input), how many could we take until the result would exceed 100 kB standard tx size limitation?
     max_clients = (100000 - 12) // (num_components * 173)
 
     # Every round, clients leave ... How many clients do we need as an absolute minimum (for privacy)?
-    min_safe_clients = 4
+    min_safe_clients = 6
 
     # Choose the minimum excess fee based on dividing the overhead amongst players, in the smallest fusion
     # (these overhead numbers assume op_return script size of 1 + 5 (lokad) + 33 (session hash) )
