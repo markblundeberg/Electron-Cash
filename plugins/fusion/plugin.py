@@ -36,6 +36,8 @@ KEEP_LINKED_PROBABILITY = 0.1
 
 DEFAULT_QUEUED_AUTOFUSE = 4
 DEFAULT_AUTOFUSE_CONFIRMED_ONLY = False
+# how long an auto-fusion may stay in 'waiting' state (without starting-soon) before it cancels itself
+AUTOFUSE_INACTIVE_TIMEOUT = 600
 
 pnp = None
 def get_upnp():
@@ -328,7 +330,7 @@ class FusionPlugin(BasePlugin):
         target_wallet._fusions.add(fusion)
         source_wallet._fusions.add(fusion)
         fusion.add_coins_from_wallet(source_wallet, password, coins)
-        fusion.start()
+        fusion.start(inactive_timeout = AUTOFUSE_INACTIVE_TIMEOUT)
         self.fusions[fusion] = time.time()
         return fusion
 

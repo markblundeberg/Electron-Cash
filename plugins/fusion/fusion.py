@@ -340,7 +340,11 @@ class Fusion(threading.Thread, PrintError):
         self.coins.clear()
         self.keypairs.clear()
 
-    def start(self):
+    def start(self, inactive_timeout = None):
+        if inactive_timeout is None:
+            self.inactive_time_limit = None
+        else:
+            self.inactive_time_limit = time.monotonic() + inactive_timeout
         assert self.coins
         super().start()
 
@@ -596,6 +600,10 @@ class Fusion(threading.Thread, PrintError):
             if display_queued:
                 parts.append(_("Queued:") + ' ' + ', '.join(display_queued))
             tiers_string = ' '.join(parts)
+
+            if besttime is None and self.inactive_time_limit is not None:
+                if time.monotonic() > self.inactive_time_limit:
+                    raise FusionError('stopping due to inactivity')
 
             if besttime is not None:
                 self.status = ('waiting', 'Starting in {}s. {}'.format(besttime, tiers_string))
