@@ -243,7 +243,7 @@ class GenericServer(threading.Thread, PrintError):
                         sock.close()
                         break
                     if self.noisy:
-                        self.print_error(f'new client: {sock.getpeername()[0]}')
+                        self.print_error(f'new client: {src[0]}')
                     connection = Connection(sock, self.client_default_timeout)
                     client = self.clientclass(connection)
                     client.noisy = self.noisy
